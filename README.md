@@ -5,7 +5,18 @@ Wasatch spectrometer active acquisition script.
 
 This repository contains a Python script for controlling a Wasatch spectrometer and collecting Raman spectra. The main script, `Acquisition.py`, connects to the instrument, acquires spectra while displaying live plots, and removes the background using routines from `utils.py`. Both raw and corrected spectra are saved to CSV files together with the acquisition parameters.
 
-To run the script, ensure Python and the required dependencies are installed and execute:
+### Setup
+
+Create the conda environment defined in `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+conda activate wasatch-controller
+```
+
+### Running
+
+After activating the environment, execute:
 
 ```bash
 python Acquisition.py
