@@ -41,7 +41,7 @@ def remove_background(
     S = spectral_data
     B = [S.copy()]
 
-    if X is None:
+    if X is None or np.sum(np.abs(X)) == 0:
         C = 0
         X = np.arange(len(S))
     else:

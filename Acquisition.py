@@ -15,10 +15,12 @@ prefix              = "" # Prefix for file names
 integration_time    = 1 # Seconds
 laser_power         = 450 # mW
 max_num_spectra     = 1000  # Maximum number of spectra to acquire
+use_background      = False  # Use background subtraction.
 
 ##### Spectrum correction parameters #####
 poly_order          = 5  # Polynomial order for baseline fitting
 max_iter            = 100  # Maximum number of iterations for background removal
+crop_range          = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to (0, 3500) to disable cropping.
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
@@ -47,7 +49,7 @@ print(f"Integration time set to {integration_time} seconds ({integration_time * 
 spectrometer.hardware.set_laser_power_mW(laser_power)
 print(f"Laser power set to {laser_power} mW")
 
-wavenumbers = spectrometer.settings.wavenumbers
+wavenumbers = np.array(spectrometer.settings.wavenumbers)
 if wavenumbers is None:
     print("Wavenumbers not available. Ensure the spectrometer is configured correctly.")
     sys.exit(1)
@@ -57,30 +59,40 @@ spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
 
 # Background spectrum acquisition
-print("The script will now acquire 3 background spectra for averaging.")
-user_input = input("Press Enter to start background acquisition...")
-background = []
-for i in range(3): # Acquire 3 background spectra for averaging
-    print(f"Acquiring background spectrum {i+1}/3...")
-    spectrum = spectrometer.hardware.get_line().data.spectrum
-    background.append(spectrum)
-background = np.mean(background, axis=0)
-print("Background spectrum acquired and averaged.")
+if use_background:
+    print("The script will now acquire 3 background spectra for averaging.")
+    user_input = input("Press Enter to start background acquisition...")
+    background = []
+    for i in range(3): # Acquire 3 background spectra for averaging
+        print(f"Acquiring background spectrum {i+1}/3...")
+        spectrum = spectrometer.hardware.get_line().data.spectrum
+        background.append(spectrum)
+    background = np.mean(background, axis=0)
+    print("Background spectrum acquired and averaged.")
+else:
+    background = np.zeros(spectrometer.settings.pixels())
+    print("Background subtraction is disabled. Using zero background.")
 
 # Active spectrum acquisition
 user_input = input("Press Enter to start active spectrum acquisition...")
 
 plt.ion()
 fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(20, 5))
+fig_manager = plt.get_current_fig_manager()
+fig_manager.full_screen_toggle()
 plt.tight_layout(pad=3)
 
 # Left plot: raw, baseline + background
 line_raw, = ax_left.plot([], [], label='Raw Spectrum', color='blue')
-line_baseline, = ax_left.plot([], [], label='Baseline + Background', color='green')
+if use_background:
+    line_baseline, = ax_left.plot([], [], label='Baseline + Background', color='green')
+    ax_left.set_title('Raw, Background, Baseline')
+else:
+    line_baseline, = ax_left.plot([], [], label='Baseline', color='green')
+    ax_left.set_title('Raw, Baseline')
 ax_left.set_xlabel('Raman Shift (cm$^{-1}$)')
 ax_left.set_ylabel('Intensity (a.u.)')
 ax_left.legend()
-ax_left.set_title('Raw, Background, Baseline')
 
 # Right plot: corrected spectrum
 line_corr, = ax_right.plot([], [], label='Corrected Spectrum', color='red')
@@ -105,26 +117,33 @@ input_thread.start()
 raw_data = np.array([]).reshape(0, spectrometer.settings.pixels())
 corrected_data = np.array([]).reshape(0, spectrometer.settings.pixels())
 
+# Crop the wavenumbers and background
+crop_mask = (wavenumbers >= crop_range[0]) & (wavenumbers <= crop_range[1])
+cropped_wavenumbers = wavenumbers[crop_mask]
+corrected_data = corrected_data[:, crop_mask]
+cropped_background = background[crop_mask]
+
 # Acquire spectra
 counter = 0
 while not stop_plotting and counter < max_num_spectra:
     spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
     raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
-    corrected_spectrum = utils.remove_background(wavenumbers, spectrum, background, poly_order, max_iter, eps=0.1)
-    baseline = spectrum.flatten() - corrected_spectrum.flatten()
+    cropped_spectrum = spectrum[crop_mask]
+    corrected_spectrum = utils.remove_background(cropped_wavenumbers, cropped_spectrum, cropped_background, poly_order, max_iter, eps=0.1)
+    baseline = cropped_spectrum.flatten() - corrected_spectrum.flatten()
     corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
     
     # Update left plot
     line_raw.set_data(wavenumbers, spectrum.flatten())
-    line_baseline.set_data(wavenumbers, baseline)
+    line_baseline.set_data(cropped_wavenumbers, baseline)
 
     ax_left.set_title(f'Raw Spectrum {counter + 1}')
     ax_left.relim()
     ax_left.autoscale_view()
 
     # Update right plot
-    line_corr.set_data(wavenumbers, corrected_spectrum.flatten())
+    line_corr.set_data(cropped_wavenumbers, corrected_spectrum.flatten())
     ax_right.set_title(f'Corrected Spectrum {counter + 1}')
     ax_right.relim()
     ax_right.autoscale_view()
@@ -145,9 +164,9 @@ print("Laser is OFF.")
 raw_df = pd.DataFrame(raw_data.T)
 corrected_df = pd.DataFrame(corrected_data.T)
 raw_df.insert(0, 'Wavenumbers', wavenumbers)
-corrected_df.insert(0, 'Wavenumbers', wavenumbers)
+corrected_df.insert(0, 'Wavenumbers', cropped_wavenumbers)
 raw_df.insert(1, 'Background', background)
-corrected_df.insert(1, 'Background', background)
+corrected_df.insert(1, 'Background', cropped_background)
 
 # Save data to CSV files with timestamp and prefix
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
