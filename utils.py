@@ -6,7 +6,7 @@ from scipy.optimize import minimize
 def remove_background(
     spectral_axis, spectral_data, background, poly_order=3, max_iter=100, eps=0.1
 ):
-    """Remove the spectral background using an iterative polynomial fit.
+    """Remove the spectral background and baseline using an iterative polynomial fit.
 
     This function is based on the method described in: Beier, Brooke D.,
     and Andrew J. Berger. “Method for Automated Background Subtraction from
@@ -63,8 +63,7 @@ def remove_background(
                         np.polyfit(spectral_axis, B[i] - C * X, poly_order),
                         spectral_axis,
                     )
-                )
-                ** 2
+                ) ** 2
             )
 
         res = minimize(cost_function, C, method="Nelder-Mead")

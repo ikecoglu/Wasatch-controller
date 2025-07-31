@@ -11,9 +11,9 @@ import threading
 import json
 
 ##### Acquisition parameters #####
-prefix              = "LN2" # Prefix for file names
-integration_time    = 60 # Seconds
-laser_power         = 50 # mW
+prefix              = "" # Prefix for file names
+integration_time    = 1 # Seconds
+laser_power         = 450 # mW
 max_num_spectra     = 1000  # Maximum number of spectra to acquire
 
 ##### Spectrum correction parameters #####
