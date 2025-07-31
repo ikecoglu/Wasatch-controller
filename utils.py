@@ -2,20 +2,45 @@ from time import time
 import numpy as np
 from scipy.optimize import minimize
 
-def remove_background(spectral_axis, spectral_data, background, poly_order=3, max_iter=100, eps=0.1):
-    """
-    This function is based on the method described in: Beier, Brooke D., 
-    and Andrew J. Berger. “Method for Automated Background Subtraction from 
-    Raman Spectra Containing Known Contaminants.” Analyst 134, no. 6 (2009): 
+
+def remove_background(
+    spectral_axis, spectral_data, background, poly_order=3, max_iter=100, eps=0.1
+):
+    """Remove the spectral background using an iterative polynomial fit.
+
+    This function is based on the method described in: Beier, Brooke D.,
+    and Andrew J. Berger. “Method for Automated Background Subtraction from
+    Raman Spectra Containing Known Contaminants.” Analyst 134, no. 6 (2009):
     1198–1202. https://doi.org/10.1039/B821856K.
+
+    Parameters
+    ----------
+    spectral_axis : array-like
+        Independent axis of the spectrum (e.g. pixel or wavenumber).
+    spectral_data : array-like
+        Measured spectrum to correct.
+    background : array-like or None
+        Reference background spectrum. If ``None`` an array matching
+        ``spectral_data`` indices is used.
+    poly_order : int, optional
+        Order of the polynomial used to model the baseline. Default is ``3``.
+    max_iter : int, optional
+        Maximum number of iterations for the optimization routine.
+    eps : float, optional
+        Convergence threshold for the iterative procedure.
+
+    Returns
+    -------
+    numpy.ndarray
+        The background corrected spectrum.
     """
 
-    emp_scaling_factor = 0.6 # Empirical scaling factor for the background
+    emp_scaling_factor = 0.6  # Empirical scaling factor for the background
     X = background
 
     S = spectral_data
     B = [S.copy()]
-    
+
     if X is None:
         C = 0
         X = np.arange(len(S))
@@ -28,10 +53,21 @@ def remove_background(spectral_axis, spectral_data, background, poly_order=3, ma
 
     start_time = time()
     while err > eps and i <= max_iter:
-        def cost_function(C):
-            return np.sum((B[i] - C * X - np.polyval(np.polyfit(spectral_axis, B[i] - C * X, poly_order), spectral_axis))**2)
 
-        res = minimize(cost_function, C, method='Nelder-Mead')
+        def cost_function(C):
+            return np.sum(
+                (
+                    B[i]
+                    - C * X
+                    - np.polyval(
+                        np.polyfit(spectral_axis, B[i] - C * X, poly_order),
+                        spectral_axis,
+                    )
+                )
+                ** 2
+            )
+
+        res = minimize(cost_function, C, method="Nelder-Mead")
         C = res.x[0]
 
         F = B[i] - C * X
@@ -41,8 +77,8 @@ def remove_background(spectral_axis, spectral_data, background, poly_order=3, ma
         B.append(np.minimum(B[i], Btd))
         i += 1
 
-        err = np.sqrt(np.sum((B[-1] - B[-2])**2))
-    
+        err = np.sqrt(np.sum((B[-1] - B[-2]) ** 2))
+
     # print(f"Final background scaling factor for spectrum {k + 1}: {C}")
     # print(f"Final error for background removal: {err}")
     # print(f"Time taken: {time() - start_time:.2f} seconds")
