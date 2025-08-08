@@ -16,6 +16,7 @@ integration_time    = 1 # Seconds
 laser_power         = 450 # mW
 max_num_spectra     = 1000  # Maximum number of spectra to acquire
 use_background      = False  # Use background subtraction.
+background_file     = ""  # Path to background file (if use_background is True and you want to load from file)
 
 ##### Spectrum correction parameters #####
 poly_order          = 5  # Polynomial order for baseline fitting
@@ -59,7 +60,13 @@ spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
 
 # Background spectrum acquisition
-if use_background:
+
+if use_background and background_file:
+    print(f"Loading background spectrum from file: {background_file}")
+    background_df = pd.read_csv(background_file)
+    background = background_df.drop(columns=['Wavenumbers', 'Background']).to_numpy()
+    background = np.mean(background, axis=1)  # Average across all background spectra
+elif use_background:
     print("The script will now acquire 3 background spectra for averaging.")
     user_input = input("Press Enter to start background acquisition...")
     background = []
