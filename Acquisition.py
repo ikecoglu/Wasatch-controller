@@ -14,14 +14,14 @@ import json
 prefix              = "" # Prefix for file names
 integration_time    = 1 # Seconds
 laser_power         = 450 # mW
-max_num_spectra     = 1000  # Maximum number of spectra to acquire
+max_num_spectra     = 10  # Maximum number of spectra to acquire
 use_background      = False  # Use background subtraction.
 background_file     = ""  # Path to background file (if use_background is True and you want to load from file)
 
 ##### Spectrum correction parameters #####
 poly_order          = 5  # Polynomial order for baseline fitting
 max_iter            = 100  # Maximum number of iterations for background removal
-crop_range          = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to (0, 3500) to disable cropping.
+crop_range          = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
@@ -125,10 +125,14 @@ raw_data = np.array([]).reshape(0, spectrometer.settings.pixels())
 corrected_data = np.array([]).reshape(0, spectrometer.settings.pixels())
 
 # Crop the wavenumbers and background
-crop_mask = (wavenumbers >= crop_range[0]) & (wavenumbers <= crop_range[1])
-cropped_wavenumbers = wavenumbers[crop_mask]
-corrected_data = corrected_data[:, crop_mask]
-cropped_background = background[crop_mask]
+if crop_range is not None:
+    crop_mask = (wavenumbers >= crop_range[0]) & (wavenumbers <= crop_range[1])
+    cropped_wavenumbers = wavenumbers[crop_mask]
+    corrected_data = corrected_data[:, crop_mask]
+    cropped_background = background[crop_mask]
+else:
+    cropped_wavenumbers = wavenumbers
+    cropped_background = background
 
 # Acquire spectra
 counter = 0

@@ -1,4 +1,3 @@
-from time import time
 import numpy as np
 from scipy.optimize import minimize
 
@@ -51,7 +50,6 @@ def remove_background(
     err = np.inf
     i = 0
 
-    start_time = time()
     while err > eps and i <= max_iter:
 
         def cost_function(C):
@@ -77,10 +75,6 @@ def remove_background(
         i += 1
 
         err = np.sqrt(np.sum((B[-1] - B[-2]) ** 2))
-
-    # print(f"Final background scaling factor for spectrum {k + 1}: {C}")
-    # print(f"Final error for background removal: {err}")
-    # print(f"Time taken: {time() - start_time:.2f} seconds")
 
     RS = S - C * X - poly_model
 
