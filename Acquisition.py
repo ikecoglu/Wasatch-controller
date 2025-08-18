@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import pandas as pd
 import numpy as np
@@ -11,17 +12,18 @@ import threading
 import json
 
 ##### Acquisition parameters #####
-prefix              = "" # Prefix for file names
-integration_time    = 1 # Seconds
-laser_power         = 450 # mW
-max_num_spectra     = 10  # Maximum number of spectra to acquire
-use_background      = False  # Use background subtraction.
-background_file     = ""  # Path to background file (if use_background is True and you want to load from file)
+data_dir          = ""  # Directory for saving acquired data
+prefix            = ""  # Prefix for file names
+integration_time  = 1   # Seconds
+laser_power       = 450 # mW
+max_num_spectra   = 10  # Maximum number of spectra to acquire
+use_background    = False  # Use background subtraction.
+background_file   = ""  # Path to background file (if use_background is True and you want to load from file)
 
 ##### Spectrum correction parameters #####
-poly_order          = 5  # Polynomial order for baseline fitting
-max_iter            = 100  # Maximum number of iterations for background removal
-crop_range          = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
+poly_order        = 5  # Polynomial order for baseline fitting
+max_iter          = 100  # Maximum number of iterations for background removal
+crop_range        = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
@@ -181,8 +183,8 @@ corrected_df.insert(1, 'Background', cropped_background)
 
 # Save data to CSV files with timestamp and prefix
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-raw_filename = f"{prefix}_{timestamp}_raw_data.csv"
-corrected_filename = f"{prefix}_{timestamp}_corrected_data.csv"
+raw_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_raw_data.csv")
+corrected_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_corrected_data.csv")
 
 raw_df.to_csv(raw_filename, index=False)
 corrected_df.to_csv(corrected_filename, index=False)
@@ -197,7 +199,7 @@ params = {
     'timestamp': timestamp,
     'prefix': prefix
 }
-params_filename = f"{prefix}_{timestamp}_params.json"
+params_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_params.json")
 with open(params_filename, 'w') as f:
     json.dump(params, f, indent=4)
 
