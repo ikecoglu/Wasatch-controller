@@ -1,15 +1,18 @@
 import sys
 import os
 import time
-import pandas as pd
-import numpy as np
-from datetime import datetime
-from wasatch.WasatchBus import WasatchBus
-from wasatch.WasatchDevice import WasatchDevice
-import matplotlib.pyplot as plt
-import utils
 import threading
 import json
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from wasatch.WasatchBus import WasatchBus
+from wasatch.WasatchDevice import WasatchDevice
+
+import utils
 
 ##### Acquisition parameters #####
 data_dir          = ""  # Directory for saving acquired data
