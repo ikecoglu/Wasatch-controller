@@ -17,13 +17,13 @@ prefix            = ""  # Prefix for file names
 integration_time  = 1   # Seconds
 laser_power       = 450 # mW
 max_num_spectra   = 10  # Maximum number of spectra to acquire
-use_background    = False  # Use background subtraction.
-background_file   = ""  # Path to background file (if use_background is True and you want to load from file)
 
 ##### Spectrum correction parameters #####
+use_background    = False  # Use background subtraction.
+background_file   = ""  # Path to background file (if use_background is True and you want to load from file)
 poly_order        = 5  # Polynomial order for baseline fitting
 max_iter          = 100  # Maximum number of iterations for background removal
-crop_range        = (300, 2300)  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
+crop_range        = (260, 1800)  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
