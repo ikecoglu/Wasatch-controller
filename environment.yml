@@ -2,11 +2,12 @@ name: wasatch-controller
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.12
   - pip
+  - pandas
+  - numpy
+  - matplotlib
+  - scipy
   - pip:
-      - pandas
-      - numpy
-      - matplotlib
-      - scipy
       - wasatch
+      - utils
