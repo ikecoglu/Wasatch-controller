@@ -63,149 +63,149 @@ if wavenumbers is None:
 # Turn on the laser
 spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
+try:
+    # Background spectrum acquisition
 
-# Background spectrum acquisition
+    if use_background and background_file:
+        print(f"Loading background spectrum from file: {background_file}")
+        background_df = pd.read_csv(background_file)
+        background = background_df.drop(columns=['Wavenumbers', 'Background']).to_numpy()
+        background = np.mean(background, axis=1)  # Average across all background spectra
+    elif use_background:
+        print("The script will now acquire 3 background spectra for averaging.")
+        user_input = input("Press Enter to start background acquisition...")
+        background = []
+        for i in range(3): # Acquire 3 background spectra for averaging
+            print(f"Acquiring background spectrum {i+1}/3...")
+            spectrum = spectrometer.hardware.get_line().data.spectrum
+            background.append(spectrum)
+        background = np.mean(background, axis=0)
+        print("Background spectrum acquired and averaged.")
+    else:
+        background = np.zeros(spectrometer.settings.pixels())
+        print("Background subtraction is disabled. Using zero background.")
 
-if use_background and background_file:
-    print(f"Loading background spectrum from file: {background_file}")
-    background_df = pd.read_csv(background_file)
-    background = background_df.drop(columns=['Wavenumbers', 'Background']).to_numpy()
-    background = np.mean(background, axis=1)  # Average across all background spectra
-elif use_background:
-    print("The script will now acquire 3 background spectra for averaging.")
-    user_input = input("Press Enter to start background acquisition...")
-    background = []
-    for i in range(3): # Acquire 3 background spectra for averaging
-        print(f"Acquiring background spectrum {i+1}/3...")
-        spectrum = spectrometer.hardware.get_line().data.spectrum
-        background.append(spectrum)
-    background = np.mean(background, axis=0)
-    print("Background spectrum acquired and averaged.")
-else:
-    background = np.zeros(spectrometer.settings.pixels())
-    print("Background subtraction is disabled. Using zero background.")
+    # Active spectrum acquisition
+    user_input = input("Press Enter to start active spectrum acquisition...")
 
-# Active spectrum acquisition
-user_input = input("Press Enter to start active spectrum acquisition...")
+    plt.ion()
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(20, 5))
+    fig_manager = plt.get_current_fig_manager()
+    fig_manager.full_screen_toggle()
+    plt.tight_layout(pad=3)
 
-plt.ion()
-fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(20, 5))
-fig_manager = plt.get_current_fig_manager()
-fig_manager.full_screen_toggle()
-plt.tight_layout(pad=3)
+    # Left plot: raw, baseline + background
+    line_raw, = ax_left.plot([], [], label='Raw Spectrum', color='blue')
+    if use_background:
+        line_baseline, = ax_left.plot([], [], label='Baseline + Background', color='green')
+        ax_left.set_title('Raw, Background, Baseline')
+    else:
+        line_baseline, = ax_left.plot([], [], label='Baseline', color='green')
+        ax_left.set_title('Raw, Baseline')
+    ax_left.set_xlabel('Raman Shift (cm$^{-1}$)')
+    ax_left.set_ylabel('Intensity (a.u.)')
+    ax_left.legend()
 
-# Left plot: raw, baseline + background
-line_raw, = ax_left.plot([], [], label='Raw Spectrum', color='blue')
-if use_background:
-    line_baseline, = ax_left.plot([], [], label='Baseline + Background', color='green')
-    ax_left.set_title('Raw, Background, Baseline')
-else:
-    line_baseline, = ax_left.plot([], [], label='Baseline', color='green')
-    ax_left.set_title('Raw, Baseline')
-ax_left.set_xlabel('Raman Shift (cm$^{-1}$)')
-ax_left.set_ylabel('Intensity (a.u.)')
-ax_left.legend()
+    # Right plot: corrected spectrum
+    line_corr, = ax_right.plot([], [], label='Corrected Spectrum', color='red')
+    ax_right.set_xlabel('Raman Shift (cm$^{-1}$)')
+    ax_right.set_ylabel('Intensity (a.u.)')
+    ax_right.legend()
+    ax_right.set_title('Corrected Spectrum')
 
-# Right plot: corrected spectrum
-line_corr, = ax_right.plot([], [], label='Corrected Spectrum', color='red')
-ax_right.set_xlabel('Raman Shift (cm$^{-1}$)')
-ax_right.set_ylabel('Intensity (a.u.)')
-ax_right.legend()
-ax_right.set_title('Corrected Spectrum')
+    stop_plotting = False
 
-stop_plotting = False
+    def wait_for_input():
+        global stop_plotting
+        input("Press Enter in terminal to stop plotting...\n")
+        stop_plotting = True
 
-def wait_for_input():
-    global stop_plotting
-    input("Press Enter in terminal to stop plotting...\n")
-    stop_plotting = True
+    # Start a thread to wait for user input to stop plotting
+    input_thread = threading.Thread(target=wait_for_input)
+    input_thread.daemon = True
+    input_thread.start()
 
-# Start a thread to wait for user input to stop plotting
-input_thread = threading.Thread(target=wait_for_input)
-input_thread.daemon = True
-input_thread.start()
+    # Initialize data arrays
+    raw_data = np.array([]).reshape(0, spectrometer.settings.pixels())
+    corrected_data = np.array([]).reshape(0, spectrometer.settings.pixels())
 
-# Initialize data arrays
-raw_data = np.array([]).reshape(0, spectrometer.settings.pixels())
-corrected_data = np.array([]).reshape(0, spectrometer.settings.pixels())
+    # Crop the wavenumbers and background
+    if crop_range is not None:
+        crop_mask = (wavenumbers >= crop_range[0]) & (wavenumbers <= crop_range[1])
+        cropped_wavenumbers = wavenumbers[crop_mask]
+        corrected_data = corrected_data[:, crop_mask]
+        cropped_background = background[crop_mask]
+    else:
+        cropped_wavenumbers = wavenumbers
+        cropped_background = background
 
-# Crop the wavenumbers and background
-if crop_range is not None:
-    crop_mask = (wavenumbers >= crop_range[0]) & (wavenumbers <= crop_range[1])
-    cropped_wavenumbers = wavenumbers[crop_mask]
-    corrected_data = corrected_data[:, crop_mask]
-    cropped_background = background[crop_mask]
-else:
-    cropped_wavenumbers = wavenumbers
-    cropped_background = background
+    # Acquire spectra
+    counter = 0
+    while not stop_plotting and counter < max_num_spectra:
+        spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
+        raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
-# Acquire spectra
-counter = 0
-while not stop_plotting and counter < max_num_spectra:
-    spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
-    raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
+        cropped_spectrum = spectrum[crop_mask]
+        corrected_spectrum = utils.remove_background(cropped_wavenumbers, cropped_spectrum, cropped_background, poly_order, max_iter, eps=0.1)
+        baseline = cropped_spectrum.flatten() - corrected_spectrum.flatten()
+        corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
 
-    cropped_spectrum = spectrum[crop_mask]
-    corrected_spectrum = utils.remove_background(cropped_wavenumbers, cropped_spectrum, cropped_background, poly_order, max_iter, eps=0.1)
-    baseline = cropped_spectrum.flatten() - corrected_spectrum.flatten()
-    corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
-    
-    # Update left plot
-    line_raw.set_data(wavenumbers, spectrum.flatten())
-    line_baseline.set_data(cropped_wavenumbers, baseline)
+        # Update left plot
+        line_raw.set_data(wavenumbers, spectrum.flatten())
+        line_baseline.set_data(cropped_wavenumbers, baseline)
 
-    ax_left.set_title(f'Raw Spectrum {counter + 1}')
-    ax_left.relim()
-    ax_left.autoscale_view()
+        ax_left.set_title(f'Raw Spectrum {counter + 1}')
+        ax_left.relim()
+        ax_left.autoscale_view()
 
-    # Update right plot
-    line_corr.set_data(cropped_wavenumbers, corrected_spectrum.flatten())
-    ax_right.set_title(f'Corrected Spectrum {counter + 1}')
-    ax_right.relim()
-    ax_right.autoscale_view()
+        # Update right plot
+        line_corr.set_data(cropped_wavenumbers, corrected_spectrum.flatten())
+        ax_right.set_title(f'Corrected Spectrum {counter + 1}')
+        ax_right.relim()
+        ax_right.autoscale_view()
 
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-    time.sleep(0.05)
-    counter += 1
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        time.sleep(0.05)
+        counter += 1
 
-plt.ioff()
-plt.show()
+    plt.ioff()
+    plt.show()
 
-# Turn off the laser
-spectrometer.hardware.set_laser_enable(False)
-print("Laser is OFF.")
+    # Create dataframes
+    raw_df = pd.DataFrame(raw_data.T)
+    corrected_df = pd.DataFrame(corrected_data.T)
+    raw_df.insert(0, 'Wavenumbers', wavenumbers)
+    corrected_df.insert(0, 'Wavenumbers', cropped_wavenumbers)
+    raw_df.insert(1, 'Background', background)
+    corrected_df.insert(1, 'Background', cropped_background)
 
-# Create dataframes
-raw_df = pd.DataFrame(raw_data.T)
-corrected_df = pd.DataFrame(corrected_data.T)
-raw_df.insert(0, 'Wavenumbers', wavenumbers)
-corrected_df.insert(0, 'Wavenumbers', cropped_wavenumbers)
-raw_df.insert(1, 'Background', background)
-corrected_df.insert(1, 'Background', cropped_background)
+    # Save data to CSV files with timestamp and prefix
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_raw_data.csv")
+    corrected_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_corrected_data.csv")
 
-# Save data to CSV files with timestamp and prefix
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-raw_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_raw_data.csv")
-corrected_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_corrected_data.csv")
+    raw_df.to_csv(raw_filename, index=False)
+    corrected_df.to_csv(corrected_filename, index=False)
 
-raw_df.to_csv(raw_filename, index=False)
-corrected_df.to_csv(corrected_filename, index=False)
+    # Save the parameters used for acquisition
+    params = {
+        'integration_time': integration_time,
+        'laser_power': laser_power,
+        'poly_order': poly_order,
+        'max_iter': max_iter,
+        'max_num_spectra': max_num_spectra,
+        'timestamp': timestamp,
+        'prefix': prefix
+    }
+    params_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_params.json")
+    with open(params_filename, 'w') as f:
+        json.dump(params, f, indent=4)
 
-# Save the parameters used for acquisition
-params = {
-    'integration_time': integration_time,
-    'laser_power': laser_power,
-    'poly_order': poly_order,
-    'max_iter': max_iter,
-    'max_num_spectra': max_num_spectra,
-    'timestamp': timestamp,
-    'prefix': prefix
-}
-params_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_params.json")
-with open(params_filename, 'w') as f:
-    json.dump(params, f, indent=4)
-
-print(f"Data saved to {raw_filename} and {corrected_filename}")
-print(f"Acquisition parameters saved to {params_filename}")
-print("Acquisition complete.")
+    print(f"Data saved to {raw_filename} and {corrected_filename}")
+    print(f"Acquisition parameters saved to {params_filename}")
+    print("Acquisition complete.")
+finally:
+    # Ensure the laser is turned off even if errors occur
+    spectrometer.hardware.set_laser_enable(False)
+    print("Laser is OFF.")
