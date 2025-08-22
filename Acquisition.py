@@ -113,15 +113,14 @@ try:
     ax_right.legend()
     ax_right.set_title('Corrected Spectrum')
 
-    stop_plotting = False
+    stop_event = threading.Event()
 
-    def wait_for_input():
-        global stop_plotting
+    def wait_for_input(event):
         input("Press Enter in terminal to stop plotting...\n")
-        stop_plotting = True
+        event.set()
 
     # Start a thread to wait for user input to stop plotting
-    input_thread = threading.Thread(target=wait_for_input)
+    input_thread = threading.Thread(target=wait_for_input, args=(stop_event,))
     input_thread.daemon = True
     input_thread.start()
 
@@ -141,7 +140,7 @@ try:
 
     # Acquire spectra
     counter = 0
-    while not stop_plotting and counter < max_num_spectra:
+    while not stop_event.is_set() and counter < max_num_spectra:
         spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
         raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
