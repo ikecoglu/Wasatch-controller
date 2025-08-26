@@ -172,6 +172,10 @@ try:
     plt.ioff()
     plt.show()
 
+    # Save the final plots and close the figure
+    fig.savefig(os.path.join(data_dir, f"{prefix}_{timestamp}_plots.png"))
+    plt.close(fig)
+
     # Create dataframes
     raw_df = pd.DataFrame(raw_data.T)
     corrected_df = pd.DataFrame(corrected_data.T)
@@ -192,6 +196,8 @@ try:
     params = {
         'integration_time': integration_time,
         'laser_power': laser_power,
+        'use_background': use_background,
+        'background_file': background_file,
         'poly_order': poly_order,
         'max_iter': max_iter,
         'max_num_spectra': max_num_spectra,
