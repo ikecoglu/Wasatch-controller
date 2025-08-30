@@ -1,5 +1,20 @@
 import numpy as np
 from scipy.optimize import minimize
+from scipy import sparse
+from scipy.sparse.linalg import spsolve
+
+def als_baseline(y, lam=1e5, p=0.01, niter=100):
+    """Return smooth baseline z for signal y."""
+    y = np.asarray(y).ravel()
+    L = y.size
+    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+    w = np.ones(L)
+    for _ in range(niter):
+        W = sparse.spdiags(w, 0, L, L)
+        Z = W + lam * (D @ D.T)
+        z = spsolve(Z, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
+    return z
 
 
 def remove_background(
@@ -41,41 +56,40 @@ def remove_background(
     B = [S.copy()]
 
     if X is None or np.sum(np.abs(X)) == 0:
-        C = 0
-        X = np.arange(len(S))
+        RS = S - als_baseline(S, lam=1e2, p=0.01, niter=max_iter)
     else:
         p = np.polyfit(X, S, 1)
         C = p[0] * emp_scaling_factor
 
-    err = np.inf
-    i = 0
+        err = np.inf
+        i = 0
 
-    while err > eps and i <= max_iter:
+        while err > eps and i <= max_iter:
 
-        def cost_function(C):
-            return np.sum(
-                (
-                    B[i]
-                    - C * X
-                    - np.polyval(
-                        np.polyfit(spectral_axis, B[i] - C * X, poly_order),
-                        spectral_axis,
-                    )
-                ) ** 2
-            )
+            def cost_function(C):
+                return np.sum(
+                    (
+                        B[i]
+                        - C * X
+                        - np.polyval(
+                            np.polyfit(spectral_axis, B[i] - C * X, poly_order),
+                            spectral_axis,
+                        )
+                    ) ** 2
+                )
 
-        res = minimize(cost_function, C, method="Nelder-Mead")
-        C = res.x[0]
+            res = minimize(cost_function, C, method="Nelder-Mead")
+            C = res.x[0]
 
-        F = B[i] - C * X
-        poly_model = np.polyval(np.polyfit(spectral_axis, F, poly_order), spectral_axis)
-        Btd = C * X + poly_model
+            F = B[i] - C * X
+            poly_model = np.polyval(np.polyfit(spectral_axis, F, poly_order), spectral_axis)
+            Btd = C * X + poly_model
 
-        B.append(np.minimum(B[i], Btd))
-        i += 1
+            B.append(np.minimum(B[i], Btd))
+            i += 1
 
-        err = np.sqrt(np.sum((B[-1] - B[-2]) ** 2))
+            err = np.sqrt(np.sum((B[-1] - B[-2]) ** 2))
 
-    RS = S - C * X - poly_model
+        RS = S - C * X - poly_model
 
     return RS
