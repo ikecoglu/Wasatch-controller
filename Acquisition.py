@@ -1,33 +1,40 @@
-import sys
-import os
-import time
-import threading
 import json
+import os
+import sys
+import threading
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
 from wasatch.WasatchBus import WasatchBus
 from wasatch.WasatchDevice import WasatchDevice
 
 import utils
 
-##### Acquisition parameters #####
+######## Optimization mode ########
+optimization_mode = False  # If True: 1s exposure, continuous, no dark/background, no saving
+
+######## Acquisition parameters ########
 data_dir          = ""  # Directory for saving acquired data
 prefix            = ""  # Prefix for file names
 integration_time  = 1   # Seconds
 laser_power       = 450 # mW
 max_num_spectra   = 10  # Maximum number of spectra to acquire, set to None for unlimited
 
-##### Spectrum correction parameters #####
+######## Spectrum correction parameters ########
 use_dark          = False # True: Dark spectrum subtraction. False: No dark spectrum subtraction.
 use_background    = False # True: Background + baseline correction. False: Just baseline correction.
 background_file   = ""    # Path to background file (if use_background is True and you want to load from file)
 poly_order        = 12    # Polynomial order for baseline fitting
 max_iter          = 100   # Maximum number of iterations for background removal
 crop_range        = (350, 2000) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
+
+if optimization_mode:
+    integration_time = 1
+    max_num_spectra = None  # continuous until stopped
+    use_background = False
+    use_dark = False
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
@@ -168,12 +175,16 @@ try:
     counter = 0
     while not stop_event.is_set() and (counter < max_num_spectra if max_num_spectra is not None else True):
         spectrum = np.array(spectrometer.hardware.get_line().data.spectrum) - dark_spectrum
-        raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
+        if not optimization_mode:
+            raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
         cropped_spectrum = spectrum[crop_mask]
-        corrected_spectrum = utils.remove_background(cropped_wavenumbers, cropped_spectrum, cropped_background, poly_order, max_iter, eps=0.1)
+        corrected_spectrum = utils.remove_background(
+                cropped_wavenumbers, cropped_spectrum, cropped_background, poly_order, max_iter, eps=0.1
+            )
         baseline = cropped_spectrum.flatten() - corrected_spectrum.flatten()
-        corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
+        if not optimization_mode:
+            corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
 
         # Update left plot
         line_raw.set_data(wavenumbers, spectrum.flatten())
@@ -195,47 +206,50 @@ try:
     # Turn off interactive mode (window will be closed after saving)
     plt.ioff()
 
-    # Directories for saving data
-    os.makedirs(data_dir, exist_ok=True)
+    if optimization_mode:
+        print("Optimization mode run complete (no data saved).")
+    else:
+        # Directories for saving data
+        os.makedirs(data_dir or ".", exist_ok=True)
 
-    # Save the final plots and close the figure
-    fig.savefig(os.path.join(data_dir, f"{prefix}_{timestamp}_plots.png"))
-    plt.close(fig)
+        # Save the final plots and close the figure
+        fig.savefig(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_plots.png"))
+        plt.close(fig)
 
-    # Create dataframes
-    raw_df = pd.DataFrame(raw_data.T)
-    corrected_df = pd.DataFrame(corrected_data.T)
-    raw_df.insert(0, 'Wavenumbers', wavenumbers)
-    corrected_df.insert(0, 'Wavenumbers', cropped_wavenumbers)
-    raw_df.insert(1, 'Background', background)
-    corrected_df.insert(1, 'Background', cropped_background)
+        # Create dataframes
+        raw_df = pd.DataFrame(raw_data.T)
+        corrected_df = pd.DataFrame(corrected_data.T)
+        raw_df.insert(0, 'Wavenumbers', wavenumbers)
+        corrected_df.insert(0, 'Wavenumbers', cropped_wavenumbers)
+        raw_df.insert(1, 'Background', background)
+        corrected_df.insert(1, 'Background', cropped_background)
 
-    # Save data to CSV files with timestamp and prefix
-    raw_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_raw_data.csv")
-    corrected_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_corrected_data.csv")
+        # Save data to CSV files with timestamp and prefix
+        raw_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_raw_data.csv")
+        corrected_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_corrected_data.csv")
 
-    raw_df.to_csv(raw_filename, index=False)
-    corrected_df.to_csv(corrected_filename, index=False)
+        raw_df.to_csv(raw_filename, index=False)
+        corrected_df.to_csv(corrected_filename, index=False)
 
-    # Save the parameters used for acquisition
-    params = {
-        'integration_time': integration_time,
-        'laser_power': laser_power,
-        'use_background': use_background,
-        'background_file': background_file,
-        'poly_order': poly_order,
-        'max_iter': max_iter,
-        'max_num_spectra': max_num_spectra,
-        'timestamp': timestamp,
-        'prefix': prefix
-    }
-    params_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_params.json")
-    with open(params_filename, 'w') as f:
-        json.dump(params, f, indent=4)
+        # Save the parameters used for acquisition
+        params = {
+            'integration_time': integration_time,
+            'laser_power': laser_power,
+            'use_background': use_background,
+            'background_file': background_file,
+            'poly_order': poly_order,
+            'max_iter': max_iter,
+            'max_num_spectra': max_num_spectra,
+            'timestamp': timestamp,
+            'prefix': prefix
+        }
+        params_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_params.json")
+        with open(params_filename, 'w') as f:
+            json.dump(params, f, indent=4)
 
-    print(f"Data saved to {raw_filename} and {corrected_filename}")
-    print(f"Acquisition parameters saved to {params_filename}")
-    print("Acquisition complete.")
+        print(f"Data saved to {raw_filename} and {corrected_filename}")
+        print(f"Acquisition parameters saved to {params_filename}")
+        print("Acquisition complete.")
 finally:
     # Ensure the laser is turned off even if errors occur
     spectrometer.hardware.set_laser_enable(False)
