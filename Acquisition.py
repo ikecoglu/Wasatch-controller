@@ -65,7 +65,6 @@ spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
 try:
     # Background spectrum acquisition
-
     if use_background and background_file:
         print(f"Loading background spectrum from file: {background_file}")
         background_df = pd.read_csv(background_file)
@@ -87,6 +86,9 @@ try:
 
     # Active spectrum acquisition
     user_input = input("Press Enter to start active spectrum acquisition...")
+
+    # Create a timestamp for creating unique filenames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     plt.ion()
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(20, 5))
@@ -184,7 +186,6 @@ try:
     corrected_df.insert(1, 'Background', cropped_background)
 
     # Save data to CSV files with timestamp and prefix
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     raw_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_raw_data.csv")
     corrected_filename = os.path.join(data_dir, f"{prefix}_{timestamp}_corrected_data.csv")
 
