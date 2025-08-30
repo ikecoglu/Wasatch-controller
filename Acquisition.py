@@ -19,13 +19,13 @@ data_dir          = ""  # Directory for saving acquired data
 prefix            = ""  # Prefix for file names
 integration_time  = 1   # Seconds
 laser_power       = 450 # mW
-max_num_spectra   = 10  # Maximum number of spectra to acquire
+max_num_spectra   = 10  # Maximum number of spectra to acquire, set to None for unlimited
 
 ##### Spectrum correction parameters #####
-use_dark          = True  # True: Dark spectrum subtraction. False: No dark spectrum subtraction.
+use_dark          = False # True: Dark spectrum subtraction. False: No dark spectrum subtraction.
 use_background    = False # True: Background + baseline correction. False: Just baseline correction.
 background_file   = ""    # Path to background file (if use_background is True and you want to load from file)
-poly_order        = 12     # Polynomial order for baseline fitting
+poly_order        = 12    # Polynomial order for baseline fitting
 max_iter          = 100   # Maximum number of iterations for background removal
 crop_range        = (350, 2000) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
@@ -56,14 +56,15 @@ print(f"Integration time set to {integration_time} seconds ({integration_time * 
 spectrometer.hardware.set_laser_power_mW(laser_power)
 print(f"Laser power set to {laser_power} mW")
 
-wavenumbers = np.array(spectrometer.settings.wavenumbers)
-if wavenumbers is None:
+if spectrometer.settings.wavenumbers is None:
     print("Wavenumbers not available. Ensure the spectrometer is configured correctly.")
     sys.exit(1)
+wavenumbers = np.asarray(spectrometer.settings.wavenumbers)
 
 # Acquire dark spectrum
 if use_dark:
     print("Acquiring dark spectrum...")
+    spectrometer.hardware.set_laser_enable(False)
     dark_spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
 else:
     print("Dark spectrum subtraction is disabled. Using zero dark spectrum.")
@@ -72,6 +73,11 @@ else:
 # Turn on the laser
 spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
+
+# Keep figure and event connection IDs accessible for cleanup
+fig = None
+keypress_cid = None
+
 try:
     # Background spectrum acquisition
     if use_background and background_file:
@@ -135,6 +141,14 @@ try:
     input_thread.daemon = True
     input_thread.start()
 
+    # Also allow stopping via keyboard ('q' or 'escape') in the figure window
+    def on_key(event):
+        if event.key in ('q', 'escape'):
+            print("Stop requested via keyboard.")
+            stop_event.set()
+
+    keypress_cid = fig.canvas.mpl_connect('key_press_event', on_key)
+
     # Initialize data arrays
     raw_data = np.array([]).reshape(0, spectrometer.settings.pixels())
     corrected_data = np.array([]).reshape(0, spectrometer.settings.pixels())
@@ -146,12 +160,13 @@ try:
         corrected_data = corrected_data[:, crop_mask]
         cropped_background = background[crop_mask]
     else:
+        crop_mask = np.ones_like(wavenumbers, dtype=bool)
         cropped_wavenumbers = wavenumbers
         cropped_background = background
 
     # Acquire spectra
     counter = 0
-    while not stop_event.is_set() and counter < max_num_spectra:
+    while not stop_event.is_set() and (counter < max_num_spectra if max_num_spectra is not None else True):
         spectrum = np.array(spectrometer.hardware.get_line().data.spectrum) - dark_spectrum
         raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
@@ -174,13 +189,14 @@ try:
         ax_right.relim()
         ax_right.autoscale_view()
 
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        time.sleep(0.05)
+        plt.pause(0.05)
         counter += 1
 
+    # Turn off interactive mode (window will be closed after saving)
     plt.ioff()
-    plt.show()
+
+    # Directories for saving data
+    os.makedirs(data_dir, exist_ok=True)
 
     # Save the final plots and close the figure
     fig.savefig(os.path.join(data_dir, f"{prefix}_{timestamp}_plots.png"))
@@ -224,3 +240,15 @@ finally:
     # Ensure the laser is turned off even if errors occur
     spectrometer.hardware.set_laser_enable(False)
     print("Laser is OFF.")
+    # Ensure figure window is closed and callbacks disconnected
+    try:
+        if fig is not None and keypress_cid is not None:
+            fig.canvas.mpl_disconnect(keypress_cid)
+    except Exception:
+        pass
+    try:
+        if fig is not None:
+            plt.close(fig)
+    except Exception:
+        pass
+    spectrometer.disconnect()
