@@ -22,11 +22,12 @@ laser_power       = 450 # mW
 max_num_spectra   = 10  # Maximum number of spectra to acquire
 
 ##### Spectrum correction parameters #####
+use_dark          = True  # True: Dark spectrum subtraction. False: No dark spectrum subtraction.
 use_background    = False # True: Background + baseline correction. False: Just baseline correction.
 background_file   = ""    # Path to background file (if use_background is True and you want to load from file)
 poly_order        = 5     # Polynomial order for baseline fitting
 max_iter          = 100   # Maximum number of iterations for background removal
-crop_range        = (260, 1800) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
+crop_range        = (350, 2000) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 # Initialize Wasatch spectrometer
 bus = WasatchBus()
@@ -60,6 +61,14 @@ if wavenumbers is None:
     print("Wavenumbers not available. Ensure the spectrometer is configured correctly.")
     sys.exit(1)
 
+# Acquire dark spectrum
+if use_dark:
+    print("Acquiring dark spectrum...")
+    dark_spectrum = spectrometer.hardware.get_line().data.spectrum
+else:
+    print("Dark spectrum subtraction is disabled. Using zero dark spectrum.")
+    dark_spectrum = np.zeros(spectrometer.settings.pixels())
+
 # Turn on the laser
 spectrometer.hardware.set_laser_enable(True)
 print("WARNING: Laser is ON. Ensure safety precautions are followed.")
@@ -76,7 +85,7 @@ try:
         background = []
         for i in range(3): # Acquire 3 background spectra for averaging
             print(f"Acquiring background spectrum {i+1}/3...")
-            spectrum = spectrometer.hardware.get_line().data.spectrum
+            spectrum = spectrometer.hardware.get_line().data.spectrum - dark_spectrum
             background.append(spectrum)
         background = np.mean(background, axis=0)
         print("Background spectrum acquired and averaged.")
@@ -143,7 +152,7 @@ try:
     # Acquire spectra
     counter = 0
     while not stop_event.is_set() and counter < max_num_spectra:
-        spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
+        spectrum = np.array(spectrometer.hardware.get_line().data.spectrum - dark_spectrum)
         raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
         cropped_spectrum = spectrum[crop_mask]
