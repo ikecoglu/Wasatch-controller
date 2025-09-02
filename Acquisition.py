@@ -14,6 +14,8 @@ import utils
 
 ######## Optimization mode ########
 optimization_mode = False  # If True: 1s exposure, continuous, no dark/background, no saving
+# Enter Raman shifts (in cm^-1) to monitor during optimization mode.
+selected_peaks_cm = []
 
 ######## Acquisition parameters ########
 data_dir          = ""  # Directory for saving acquired data
@@ -199,6 +201,22 @@ try:
         ax_right.set_title(f'Corrected Spectrum {counter + 1}')
         ax_right.relim()
         ax_right.autoscale_view()
+
+        # If in optimization mode, report intensity at selected peaks (cm^-1)
+        if optimization_mode and selected_peaks_cm:
+            intensities = []
+            corr_flat = corrected_spectrum.flatten()
+            for peak_cm in selected_peaks_cm:
+                # Find nearest index within the cropped wavenumbers
+                idx = int(np.argmin(np.abs(cropped_wavenumbers - peak_cm)))
+                nearest_cm = float(cropped_wavenumbers[idx])
+                intensity = float(corr_flat[idx])
+                intensities.append((peak_cm, nearest_cm, intensity))
+            # Print a compact readout per iteration
+            readout = ", ".join(
+                [f"{p:.1f} cm^-1 (~{n:.1f}) = {i:.2f} a.u." for p, n, i in intensities]
+            )
+            print(f"[Optimization] Spectrum {counter + 1}: {readout}")
 
         plt.pause(0.05)
         counter += 1
