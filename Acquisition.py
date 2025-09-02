@@ -14,8 +14,9 @@ import utils
 
 ######## Optimization mode ########
 optimization_mode = False  # If True: 1s exposure, continuous, no dark/background, no saving
-# Enter Raman shifts (in cm^-1) to monitor during optimization mode.
-selected_peaks_cm = []
+selected_peaks_cm = [] # For reporting, in cm^-1
+optimization_integration_time = 1 # seconds
+optimization_averages = 1 # spectra averaged per update (>=1)
 
 ######## Acquisition parameters ########
 data_dir          = ""  # Directory for saving acquired data
@@ -33,7 +34,8 @@ max_iter          = 100   # Maximum number of iterations for background removal
 crop_range        = (350, 2000) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 if optimization_mode:
-    integration_time = 1
+    optimization_averages = max(1, int(optimization_averages))
+    integration_time = optimization_integration_time
     max_num_spectra = None  # continuous until stopped
     use_background = False
     use_dark = False
@@ -189,7 +191,14 @@ try:
     # Acquire spectra
     counter = 0
     while not stop_event.is_set() and (counter < max_num_spectra if max_num_spectra is not None else True):
-        spectrum = np.array(spectrometer.hardware.get_line().data.spectrum) - dark_spectrum
+        # Acquire spectrum with optional averaging in optimization mode
+        if optimization_mode and optimization_averages > 1:
+            frames = []
+            for _ in range(optimization_averages):
+                frames.append(np.array(spectrometer.hardware.get_line().data.spectrum))
+            spectrum = np.mean(frames, axis=0) - dark_spectrum
+        else:
+            spectrum = np.array(spectrometer.hardware.get_line().data.spectrum) - dark_spectrum
         if not optimization_mode:
             raw_data = np.vstack([raw_data, spectrum]) if raw_data.size else spectrum
 
