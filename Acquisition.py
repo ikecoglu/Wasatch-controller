@@ -139,6 +139,19 @@ try:
     ax_right.legend()
     ax_right.set_title('Corrected Spectrum')
 
+    # Optional markers for selected peaks (only used in optimization mode)
+    line_raw_peaks = None
+    line_corr_peaks = None
+    if optimization_mode and selected_peaks_cm:
+        line_raw_peaks, = ax_left.plot([], [], linestyle='none', marker='o',
+                                       markersize=6, color='magenta',
+                                       label='Selected Peaks')
+        line_corr_peaks, = ax_right.plot([], [], linestyle='none', marker='o',
+                                         markersize=6, color='magenta',
+                                         label='Selected Peaks')
+        ax_left.legend()
+        ax_right.legend()
+
     stop_event = threading.Event()
 
     def wait_for_input(event):
@@ -201,6 +214,27 @@ try:
         ax_right.set_title(f'Corrected Spectrum {counter + 1}')
         ax_right.relim()
         ax_right.autoscale_view()
+
+        # Update selected peak markers if enabled
+        if line_raw_peaks is not None and line_corr_peaks is not None:
+            # Raw spectrum markers (left)
+            raw_xs = []
+            raw_ys = []
+            for peak_cm in selected_peaks_cm:
+                idx_raw = int(np.argmin(np.abs(wavenumbers - peak_cm)))
+                raw_xs.append(float(wavenumbers[idx_raw]))
+                raw_ys.append(float(spectrum.flatten()[idx_raw]))
+            line_raw_peaks.set_data(raw_xs, raw_ys)
+
+            # Corrected spectrum markers (right)
+            corr_xs = []
+            corr_ys = []
+            corr_flat = corrected_spectrum.flatten()
+            for peak_cm in selected_peaks_cm:
+                idx_corr = int(np.argmin(np.abs(cropped_wavenumbers - peak_cm)))
+                corr_xs.append(float(cropped_wavenumbers[idx_corr]))
+                corr_ys.append(float(corr_flat[idx_corr]))
+            line_corr_peaks.set_data(corr_xs, corr_ys)
 
         # If in optimization mode, report intensity at selected peaks (cm^-1)
         if optimization_mode and selected_peaks_cm:
