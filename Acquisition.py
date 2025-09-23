@@ -118,35 +118,44 @@ try:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     plt.ion()
-    if optimization_mode and selected_peaks_cm:
-        fig, axes = plt.subplots(1, 3, figsize=(28, 5))
-        ax_left, ax_right, ax_time = axes
+    if optimization_mode:
+        fig = plt.figure(figsize=(24, 8))
+        gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], wspace=0.3, hspace=0.25)
+        ax_corr = fig.add_subplot(gs[0, 0])
+        ax_raw = fig.add_subplot(gs[1, 0], sharex=ax_corr)
+        ax_time = fig.add_subplot(gs[:, 1])
     else:
         fig, axes = plt.subplots(1, 2, figsize=(20, 5))
-        ax_left, ax_right = axes
+        ax_raw, ax_corr = axes
         ax_time = None
     fig_manager = plt.get_current_fig_manager()
     fig_manager.full_screen_toggle()
-    plt.tight_layout(pad=3)
+    fig.tight_layout(pad=3)
 
-    # Left plot: raw, baseline + background
-    line_raw, = ax_left.plot([], [], label='Raw Spectrum', color='blue')
+    if ax_time is not None:
+        ax_time.set_xlabel('Time (s)')
+        ax_time.set_ylabel('Intensity (a.u.)')
+        ax_time.set_title('Selected Peak Intensities Over Time')
+        ax_time.grid(True, linestyle='--', alpha=0.3)
+
+    # Raw plot (bottom-left in optimization mode)
+    line_raw, = ax_raw.plot([], [], label='Raw Spectrum', color='blue')
     if use_background:
-        line_baseline, = ax_left.plot([], [], label='Baseline + Background', color='green')
-        ax_left.set_title('Raw, Background, Baseline')
+        line_baseline, = ax_raw.plot([], [], label='Baseline + Background', color='green')
+        ax_raw.set_title('Raw, Background, Baseline')
     else:
-        line_baseline, = ax_left.plot([], [], label='Baseline', color='green')
-        ax_left.set_title('Raw, Baseline')
-    ax_left.set_xlabel('Raman Shift (cm$^{-1}$)')
-    ax_left.set_ylabel('Intensity (a.u.)')
-    ax_left.legend()
+        line_baseline, = ax_raw.plot([], [], label='Baseline', color='green')
+        ax_raw.set_title('Raw, Baseline')
+    ax_raw.set_xlabel('Raman Shift (cm$^{-1}$)')
+    ax_raw.set_ylabel('Intensity (a.u.)')
+    ax_raw.legend()
 
-    # Right plot: corrected spectrum
-    line_corr, = ax_right.plot([], [], label='Corrected Spectrum', color='red')
-    ax_right.set_xlabel('Raman Shift (cm$^{-1}$)')
-    ax_right.set_ylabel('Intensity (a.u.)')
-    ax_right.legend()
-    ax_right.set_title('Corrected Spectrum')
+    # Corrected spectrum plot (top-left in optimization mode)
+    line_corr, = ax_corr.plot([], [], label='Corrected Spectrum', color='red')
+    ax_corr.set_xlabel('Raman Shift (cm$^{-1}$)')
+    ax_corr.set_ylabel('Intensity (a.u.)')
+    ax_corr.legend()
+    ax_corr.set_title('Corrected Spectrum')
 
     # Optional markers for selected peaks (only used in optimization mode)
     line_raw_peaks = None
@@ -156,14 +165,14 @@ try:
     time_history = []
     start_time = None
     if optimization_mode and selected_peaks_cm:
-        line_raw_peaks, = ax_left.plot([], [], linestyle='none', marker='o',
+        line_raw_peaks, = ax_raw.plot([], [], linestyle='none', marker='o',
                                        markersize=6, color='magenta',
                                        label='Selected Peaks')
-        line_corr_peaks, = ax_right.plot([], [], linestyle='none', marker='o',
+        line_corr_peaks, = ax_corr.plot([], [], linestyle='none', marker='o',
                                          markersize=6, color='magenta',
                                          label='Selected Peaks')
-        ax_left.legend()
-        ax_right.legend()
+        ax_raw.legend()
+        ax_corr.legend()
 
         # Prepare intensity tracking plot
         start_time = time.time()
@@ -173,11 +182,7 @@ try:
             color = cmap(idx % cmap.N)
             line, = ax_time.plot([], [], label=f'{peak_cm:.1f} cm$^{-1}$', color=color)
             intensity_lines[peak_cm] = line
-        ax_time.set_xlabel('Time (s)')
-        ax_time.set_ylabel('Intensity (a.u.)')
-        ax_time.set_title('Selected Peak Intensities Over Time')
         ax_time.legend(loc='upper right')
-        ax_time.grid(True, linestyle='--', alpha=0.3)
 
     stop_event = threading.Event()
 
@@ -235,19 +240,19 @@ try:
         if not optimization_mode:
             corrected_data = np.vstack([corrected_data, corrected_spectrum]) if corrected_data.size else corrected_spectrum
 
-        # Update left plot
+        # Update raw plot
         line_raw.set_data(wavenumbers, spectrum.flatten())
         line_baseline.set_data(cropped_wavenumbers, baseline)
 
-        ax_left.set_title(f'Raw Spectrum {counter + 1}')
-        ax_left.relim()
-        ax_left.autoscale_view()
+        ax_raw.set_title(f'Raw Spectrum {counter + 1}')
+        ax_raw.relim()
+        ax_raw.autoscale_view()
 
-        # Update right plot
+        # Update corrected plot
         line_corr.set_data(cropped_wavenumbers, corrected_spectrum.flatten())
-        ax_right.set_title(f'Corrected Spectrum {counter + 1}')
-        ax_right.relim()
-        ax_right.autoscale_view()
+        ax_corr.set_title(f'Corrected Spectrum {counter + 1}')
+        ax_corr.relim()
+        ax_corr.autoscale_view()
 
         # Update selected peak markers if enabled
         if line_raw_peaks is not None and line_corr_peaks is not None:
