@@ -121,7 +121,7 @@ try:
     plt.ion()
     if optimization_mode:
         fig = plt.figure(figsize=(24, 8), constrained_layout=True)
-        gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], wspace=0.3, hspace=0.25)
+        gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.05, hspace=0.25)
         ax_corr = fig.add_subplot(gs[0, 0])
         ax_raw = fig.add_subplot(gs[1, 0])
         ax_time = fig.add_subplot(gs[:, 1])
@@ -137,6 +137,7 @@ try:
         ax_time.set_ylabel('Intensity (a.u.)')
         ax_time.set_title('Selected Peak Intensities Over Time')
         ax_time.grid(True, linestyle='--', alpha=0.3)
+        ax_time.set_anchor('W')
 
     # Raw plot (bottom-left in optimization mode)
     line_raw, = ax_raw.plot([], [], label='Raw Spectrum', color='blue')
