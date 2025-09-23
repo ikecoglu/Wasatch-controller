@@ -120,8 +120,9 @@ try:
 
     plt.ion()
     if optimization_mode:
-        fig = plt.figure(figsize=(24, 8), constrained_layout=True)
-        gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.05, hspace=0.25)
+        fig = plt.figure(figsize=(24, 9), constrained_layout=True)
+        fig.set_constrained_layout_pads(w_pad=0.02, h_pad=0.02, wspace=0.02, hspace=0.04)
+        gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.02, hspace=0.05)
         ax_corr = fig.add_subplot(gs[0, 0])
         ax_raw = fig.add_subplot(gs[1, 0])
         ax_time = fig.add_subplot(gs[:, 1])
