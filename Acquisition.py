@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import threading
+import time
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ use_background    = False # True: Background + baseline correction. False: Just 
 background_file   = ""    # Path to background file (if use_background is True and you want to load from file)
 poly_order        = 12    # Polynomial order for baseline fitting
 max_iter          = 100   # Maximum number of iterations for background removal
-crop_range        = (350, 2000) # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
+crop_range        = None  # Crop range for the spectrum (in cm^-1). Set to None to disable cropping.
 
 if optimization_mode:
     optimization_averages = max(1, int(optimization_averages))
@@ -117,7 +118,13 @@ try:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     plt.ion()
-    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(20, 5))
+    if optimization_mode and selected_peaks_cm:
+        fig, axes = plt.subplots(1, 3, figsize=(28, 5))
+        ax_left, ax_right, ax_time = axes
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(20, 5))
+        ax_left, ax_right = axes
+        ax_time = None
     fig_manager = plt.get_current_fig_manager()
     fig_manager.full_screen_toggle()
     plt.tight_layout(pad=3)
@@ -144,6 +151,10 @@ try:
     # Optional markers for selected peaks (only used in optimization mode)
     line_raw_peaks = None
     line_corr_peaks = None
+    intensity_lines = {}
+    intensity_history = {}
+    time_history = []
+    start_time = None
     if optimization_mode and selected_peaks_cm:
         line_raw_peaks, = ax_left.plot([], [], linestyle='none', marker='o',
                                        markersize=6, color='magenta',
@@ -153,6 +164,20 @@ try:
                                          label='Selected Peaks')
         ax_left.legend()
         ax_right.legend()
+
+        # Prepare intensity tracking plot
+        start_time = time.time()
+        intensity_history = {peak_cm: [] for peak_cm in selected_peaks_cm}
+        cmap = plt.cm.get_cmap('tab10')
+        for idx, peak_cm in enumerate(selected_peaks_cm):
+            color = cmap(idx % cmap.N)
+            line, = ax_time.plot([], [], label=f'{peak_cm:.1f} cm$^{-1}$', color=color)
+            intensity_lines[peak_cm] = line
+        ax_time.set_xlabel('Time (s)')
+        ax_time.set_ylabel('Intensity (a.u.)')
+        ax_time.set_title('Selected Peak Intensities Over Time')
+        ax_time.legend(loc='upper right')
+        ax_time.grid(True, linestyle='--', alpha=0.3)
 
     stop_event = threading.Event()
 
@@ -260,6 +285,16 @@ try:
                 [f"{p:.1f} cm^-1 (~{n:.1f}) = {i:.2f} a.u." for p, n, i in intensities]
             )
             print(f"[Optimization] Spectrum {counter + 1}: {readout}")
+
+            # Update intensity history plot
+            elapsed = time.time() - start_time if start_time is not None else 0.0
+            time_history.append(elapsed)
+            for peak_cm, _, intensity in intensities:
+                intensity_history[peak_cm].append(intensity)
+                intensity_lines[peak_cm].set_data(time_history, intensity_history[peak_cm])
+            if ax_time is not None:
+                ax_time.relim()
+                ax_time.autoscale_view()
 
         plt.pause(0.05)
         counter += 1
