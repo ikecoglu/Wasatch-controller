@@ -120,18 +120,17 @@ try:
 
     plt.ion()
     if optimization_mode:
-        fig = plt.figure(figsize=(24, 8))
+        fig = plt.figure(figsize=(24, 8), constrained_layout=True)
         gs = fig.add_gridspec(2, 2, width_ratios=[1, 1], wspace=0.3, hspace=0.25)
         ax_corr = fig.add_subplot(gs[0, 0])
         ax_raw = fig.add_subplot(gs[1, 0])
         ax_time = fig.add_subplot(gs[:, 1])
     else:
-        fig, axes = plt.subplots(1, 2, figsize=(20, 5))
+        fig, axes = plt.subplots(1, 2, figsize=(20, 5), constrained_layout=True)
         ax_raw, ax_corr = axes
         ax_time = None
     fig_manager = plt.get_current_fig_manager()
     fig_manager.full_screen_toggle()
-    plt.tight_layout(pad=3)
 
     if ax_time is not None:
         ax_time.set_xlabel('Time (s)')
@@ -184,7 +183,6 @@ try:
             line, = ax_time.plot([], [], label=f'{peak_cm:.1f} cm$^{-1}$', color=color)
             intensity_lines[peak_cm] = line
         ax_time.legend(loc='upper right')
-        plt.tight_layout(pad=2.0)
 
     stop_event = threading.Event()
 
