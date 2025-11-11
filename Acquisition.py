@@ -41,7 +41,7 @@ SG_window               = 7
 SG_polyorder            = 3
 
 
-# Ramanspy pipeline fn
+# Ramanspy pipeline function (NO DESPIKING)
 def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
                         RS_1d_cm: np.ndarray,
                         crop_region=(400, 1800),
@@ -51,7 +51,7 @@ def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
     Returns:
         processed_RS       : cropped Raman shifts (cm^-1)
         processed_spectrum : ASLS baseline-corrected spectrum (cropped)
-        smooth_spectrum    : despiked + SavGol + vector-normalized (cropped)
+        smooth_spectrum    : SavGol + vector-normalized (cropped)
         baseline           : baseline estimate over cropped domain (raw_cropped - processed)
     """
     raw_spec = rp.Spectrum(np.asarray(raw_spectrum_1d, dtype=float),
@@ -61,9 +61,8 @@ def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
     processed = rp.preprocessing.baseline.ASLS(lam=asls_lam, p=asls_p).apply(cropped)
     baseline  = cropped.spectral_data - processed.spectral_data
 
-    despiked  = rp.preprocessing.despike.WhitakerHayes().apply(processed)
     smoothed  = rp.preprocessing.denoise.SavGol(window_length=SG_window,
-                                                polyorder=SG_polyorder).apply(despiked)
+                                                polyorder=SG_polyorder).apply(processed)
     smoothed  = rp.preprocessing.normalise.Vector(pixelwise=True).apply(smoothed)
 
     return (processed.spectral_axis,
@@ -73,7 +72,6 @@ def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
 
 
 def main():
-    # Apply optimization mode overrides
     global integration_time, max_num_spectra, use_background, use_dark, optimization_averages
     if optimization_mode:
         integration_time = optimization_int_time
@@ -114,14 +112,24 @@ def main():
         sys.exit(1)
     wavenumbers = np.asarray(spectrometer.settings.wavenumbers)
 
-    # Dark spectrum
+    # ---------- Dark spectrum & LASER STATE MANAGEMENT ----------
     if use_dark:
-        print("Acquiring dark spectrum...")
-        spectrometer.hardware.set_laser_enable(False)
+        print("Acquiring dark spectrum with LASER OFF...")
+        try:
+            spectrometer.hardware.set_laser_enable(False)
+        except Exception:
+            pass
         dark_spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
+        # Turn laser ON immediately after dark acquisition (no user input)
+        spectrometer.hardware.set_laser_enable(True)
+        print("Dark acquired. Laser is NOW ON. Ensure safety precautions are followed.")
     else:
         print("Dark spectrum subtraction is disabled. Using zero dark spectrum.")
         dark_spectrum = np.zeros(spectrometer.settings.pixels())
+        # Turn laser ON immediately (no user input)
+        spectrometer.hardware.set_laser_enable(True)
+        print("Laser is ON. Ensure safety precautions are followed.")
+    # -----------------------------------------------------------
 
     # Background
     if use_background and background_file:
@@ -173,7 +181,7 @@ def main():
             ax_raw, ax_corr = axes
             ax_time = None
 
-        # Fullscreen (safe)
+        # Fullscreen
         try:
             fig_manager = plt.get_current_fig_manager()
             if hasattr(fig_manager, "full_screen_toggle"):
@@ -197,7 +205,7 @@ def main():
         ax_raw.set_ylabel('Intensity (a.u.)')
         ax_raw.legend()
 
-        line_corr, = ax_corr.plot([], [], label='Processed (Despike+SavGol+VectorNorm)')
+        line_corr, = ax_corr.plot([], [], label='Processed (SavGol + VectorNorm)')
         ax_corr.set_xlabel('Raman Shift (cm$^{-1}$)')
         ax_corr.set_ylabel('Intensity (a.u.)')
         ax_corr.legend()
@@ -212,14 +220,11 @@ def main():
         start_time = None
 
         if optimization_mode and selected_peaks_cm:
-            line_raw_peaks, = ax_raw.plot([], [], linestyle='none', marker='o', markersize=6,
-                                          label='Selected Peaks')
-            line_corr_peaks, = ax_corr.plot([], [], linestyle='none', marker='o', markersize=6,
-                                            label='Selected Peaks')
+            line_raw_peaks, = ax_raw.plot([], [], linestyle='none', marker='o', markersize=6, label='Selected Peaks')
+            line_corr_peaks, = ax_corr.plot([], [], linestyle='none', marker='o', markersize=6, label='Selected Peaks')
             ax_raw.legend()
             ax_corr.legend()
 
-            # start_time will be (re)set after user starts to align the time series with acquisition
             cmap = colormaps.get_cmap('tab10')
             intensity_history = {peak_cm: [] for peak_cm in selected_peaks_cm}
             for idx, peak_cm in enumerate(selected_peaks_cm):
@@ -228,7 +233,7 @@ def main():
                 intensity_lines[peak_cm] = line
             ax_time.legend(loc='upper right')
 
-        # ---- STOP controls (defined, but NOT started yet) -------------------
+        # Stop controls
         stop_event = threading.Event()
 
         def wait_for_stop(event):
@@ -241,62 +246,50 @@ def main():
                 print("Stop requested via keyboard.")
                 stop_event.set()
         keypress_cid = fig.canvas.mpl_connect('key_press_event', on_key)
-        # --------------------------------------------------------------------
 
         # Buffers
         pixels = spectrometer.settings.pixels()
-        raw_data = np.empty((0, pixels))     # always 2-D
-        corrected_data = None                # set after first processed spectrum
+        raw_data = np.empty((0, pixels))
+        corrected_data = None
         processed_RS = None
 
-        # ======= START gate happens BEFORE laser enable & acquisition ========
+        # Start gate (only for acquisition/plotting, not laser)
         if sys.stdin and sys.stdin.isatty():
             input("Press Enter to START acquisition and plotting...")
-        # ====================================================================
 
-        # Turn laser ON only after the user started
-        spectrometer.hardware.set_laser_enable(True)
-        print("WARNING: Laser is ON. Ensure safety precautions are followed.")
-
-        # If plotting time series, set the zero-time now
         if optimization_mode and selected_peaks_cm:
             start_time = time.time()
 
-        # Now that we started, begin the STOP listener thread
+        # Start stop-listener AFTER acquisition starts
         input_thread = threading.Thread(target=wait_for_stop, args=(stop_event,), daemon=True)
         input_thread.start()
 
-        # ----------------------- Acquire loop -------------------------------
+        # Acquire
         counter = 0
         try:
             while not stop_event.is_set() and (max_num_spectra is None or counter < max_num_spectra):
                 if optimization_mode and optimization_averages > 1:
-                    frames = []
-                    for _ in range(optimization_averages):
-                        frames.append(np.array(spectrometer.hardware.get_line().data.spectrum))
+                    frames = [np.array(spectrometer.hardware.get_line().data.spectrum)
+                              for _ in range(optimization_averages)]
                     spectrum = np.mean(frames, axis=0)
                 else:
                     spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
 
-                # pre-Ramanspy corrections
                 spectrum = spectrum - dark_spectrum
-                if use_background and background is not None and background.size == spectrum.size:
+                if use_background and background.size == spectrum.size:
                     spectrum = spectrum - background
 
-                # Ramanspy pipeline
                 processed_RS, processed_spectrum, smooth_spectrum, baseline = rp_process_spectrum(
-                    raw_spectrum_1d=spectrum.flatten(),
-                    RS_1d_cm=wavenumbers,
+                    spectrum.flatten(), wavenumbers,
                     crop_region=crop_region,
                     asls_lam=asls_lam, asls_p=asls_p,
                     SG_window=SG_window, SG_polyorder=SG_polyorder
                 )
-                corrected_spectrum = smooth_spectrum  # final series (cropped)
+                corrected_spectrum = smooth_spectrum
 
                 if corrected_data is None:
                     corrected_data = np.empty((0, processed_RS.size))
 
-                # Update plots
                 line_raw.set_data(wavenumbers, spectrum.flatten())
                 line_baseline.set_data(processed_RS, baseline.flatten())
                 ax_raw.set_title(f'Raw Spectrum {counter + 1}')
@@ -306,16 +299,15 @@ def main():
                 ax_corr.set_title(f'Corrected Spectrum {counter + 1}')
                 ax_corr.relim(); ax_corr.autoscale_view()
 
-                # Peak markers
+                # Optional: peaks & time series (if configured)
                 if line_raw_peaks is not None and line_corr_peaks is not None:
-                    # raw side
                     raw_xs, raw_ys = [], []
                     for peak_cm in selected_peaks_cm:
                         idx_raw = int(np.argmin(np.abs(wavenumbers - peak_cm)))
                         raw_xs.append(float(wavenumbers[idx_raw]))
                         raw_ys.append(float(spectrum.flatten()[idx_raw]))
                     line_raw_peaks.set_data(raw_xs, raw_ys)
-                    # corrected side (cropped domain)
+
                     corr_xs, corr_ys = [], []
                     corr_flat = corrected_spectrum.flatten()
                     for peak_cm in selected_peaks_cm:
@@ -324,7 +316,6 @@ def main():
                         corr_ys.append(float(corr_flat[idx_corr]))
                     line_corr_peaks.set_data(corr_xs, corr_ys)
 
-                # Intensity vs time
                 if optimization_mode and selected_peaks_cm:
                     elapsed = time.time() - start_time if start_time is not None else 0.0
                     time_history.append(elapsed)
@@ -337,7 +328,6 @@ def main():
                     if ax_time is not None:
                         ax_time.relim(); ax_time.autoscale_view()
 
-                # Save to buffers
                 raw_data = np.vstack([raw_data, spectrum[np.newaxis, :]])
                 corrected_data = np.vstack([corrected_data, corrected_spectrum[np.newaxis, :]])
 
@@ -346,33 +336,26 @@ def main():
         except KeyboardInterrupt:
             print("Interrupted by user.")
 
-        # Save outputs
         plt.ioff()
 
-        if optimization_mode:
-            print("Optimization mode run complete (no data saved).")
-        else:
+        if not optimization_mode:
             os.makedirs(data_dir or ".", exist_ok=True)
-
-            # Save plot
             fig.savefig(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_plots.png"))
             plt.close(fig)
 
-            # DataFrames
             raw_df = pd.DataFrame(raw_data.T)
             raw_df.insert(0, 'Wavenumbers', wavenumbers)
             raw_df.insert(1, 'Background', background)
 
             corrected_df = pd.DataFrame(corrected_data.T)
             corrected_df.insert(0, 'Wavenumbers', processed_RS)
-            corrected_df.insert(1, 'Background', np.zeros_like(processed_RS))  # placeholder for parity
+            corrected_df.insert(1, 'Background', np.zeros_like(processed_RS))
 
             raw_filename       = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_raw_data.csv")
             corrected_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_corrected_data.csv")
             raw_df.to_csv(raw_filename, index=False)
             corrected_df.to_csv(corrected_filename, index=False)
 
-            # Params
             params = {
                 'integration_time': integration_time,
                 'laser_power': laser_power,
@@ -391,19 +374,14 @@ def main():
                     'asls_p': asls_p,
                     'SG_window': SG_window,
                     'SG_polyorder': SG_polyorder,
-                    'pipeline': ['Crop', 'ASLS', 'WhitakerHayes', 'SavGol', 'VectorNorm(pixelwise)']
+                    'pipeline': ['Crop', 'ASLS', 'SavGol', 'VectorNorm(pixelwise)']
                 }
             }
-            params_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_params.json")
-            with open(params_filename, 'w') as f:
+            with open(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_params.json"), 'w') as f:
                 json.dump(params, f, indent=4)
 
-            print(f"Data saved to {raw_filename} and {corrected_filename}")
-            print(f"Acquisition parameters saved to {params_filename}")
-            print("Acquisition complete.")
-
+            print("Data saved successfully.")
     finally:
-        # Safety & cleanup
         try:
             spectrometer.hardware.set_laser_enable(False)
             print("Laser is OFF.")
@@ -415,8 +393,7 @@ def main():
         except Exception:
             pass
         try:
-            if fig is not None:
-                plt.close(fig)
+            plt.close(fig)
         except Exception:
             pass
         try:
