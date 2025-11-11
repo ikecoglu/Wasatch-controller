@@ -71,6 +71,7 @@ def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
             smoothed.spectral_data,
             baseline)
 
+
 def main():
     # Apply optimization mode overrides
     global integration_time, max_num_spectra, use_background, use_dark, optimization_averages
@@ -157,10 +158,6 @@ def main():
     keypress_cid = None
 
     try:
-        # Turn laser ON inside try to guarantee shutdown in finally
-        spectrometer.hardware.set_laser_enable(True)
-        print("WARNING: Laser is ON. Ensure safety precautions are followed.")
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         plt.ion()
@@ -222,32 +219,29 @@ def main():
             ax_raw.legend()
             ax_corr.legend()
 
-            start_time = time.time()
-            intensity_history = {peak_cm: [] for peak_cm in selected_peaks_cm}
+            # start_time will be (re)set after user starts to align the time series with acquisition
             cmap = colormaps.get_cmap('tab10')
+            intensity_history = {peak_cm: [] for peak_cm in selected_peaks_cm}
             for idx, peak_cm in enumerate(selected_peaks_cm):
                 color = cmap(idx % cmap.N)
                 line, = ax_time.plot([], [], label=f'{peak_cm:.1f} cm$^{-1}$', color=color)
                 intensity_lines[peak_cm] = line
             ax_time.legend(loc='upper right')
 
-        # Stop controls
+        # ---- STOP controls (defined, but NOT started yet) -------------------
         stop_event = threading.Event()
 
-        def wait_for_input(event):
+        def wait_for_stop(event):
             if sys.stdin and sys.stdin.isatty():
-                input("Press Enter in terminal to stop plotting...\n")
+                input("Press Enter in terminal to STOP plotting...\n")
                 event.set()
-
-        input_thread = threading.Thread(target=wait_for_input, args=(stop_event,), daemon=True)
-        input_thread.start()
 
         def on_key(event):
             if event.key in ('q', 'escape'):
                 print("Stop requested via keyboard.")
                 stop_event.set()
-
         keypress_cid = fig.canvas.mpl_connect('key_press_event', on_key)
+        # --------------------------------------------------------------------
 
         # Buffers
         pixels = spectrometer.settings.pixels()
@@ -255,11 +249,24 @@ def main():
         corrected_data = None                # set after first processed spectrum
         processed_RS = None
 
-        # Optional user gate
+        # ======= START gate happens BEFORE laser enable & acquisition ========
         if sys.stdin and sys.stdin.isatty():
-            input("Press Enter to start active spectrum acquisition...")
+            input("Press Enter to START acquisition and plotting...")
+        # ====================================================================
 
-        # Acquire
+        # Turn laser ON only after the user started
+        spectrometer.hardware.set_laser_enable(True)
+        print("WARNING: Laser is ON. Ensure safety precautions are followed.")
+
+        # If plotting time series, set the zero-time now
+        if optimization_mode and selected_peaks_cm:
+            start_time = time.time()
+
+        # Now that we started, begin the STOP listener thread
+        input_thread = threading.Thread(target=wait_for_stop, args=(stop_event,), daemon=True)
+        input_thread.start()
+
+        # ----------------------- Acquire loop -------------------------------
         counter = 0
         try:
             while not stop_event.is_set() and (max_num_spectra is None or counter < max_num_spectra):
@@ -416,6 +423,7 @@ def main():
             spectrometer.disconnect()
         except Exception:
             pass
+
 
 if __name__ == "__main__":
     main()
