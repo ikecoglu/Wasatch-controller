@@ -16,7 +16,7 @@ from wasatch.WasatchDevice import WasatchDevice
 # PARAMETERS
 
 # Acquisition / control
-optimization_mode       = False   # If True: 1s exposure, continuous, no saving
+optimization_mode       = False   # If True: continuous, no saving
 data_dir                = ""      # Directory to save data; "" means current dir
 prefix                  = ""      # Filename prefix
 integration_time        = 1.0     # seconds
@@ -30,6 +30,7 @@ background_file         = ""      # CSV file path (if use_background and load fr
 
 # Optimization extras
 optimization_averages   = 1       # >=1 frames per displayed spectrum (only used in optimization_mode)
+optimization_int_time   = 1.0     # seconds (overrides integration_time in optimization_mode)
 selected_peaks_cm       = []      # e.g., [520, 1000, 1600]
 
 # Ramanspy preprocessing parameters
@@ -74,7 +75,7 @@ def main():
     # Apply optimization mode overrides
     global integration_time, max_num_spectra, use_background, use_dark, optimization_averages
     if optimization_mode:
-        integration_time = 1.0
+        integration_time = optimization_int_time
         max_num_spectra = None
         use_background = False
         use_dark = False
