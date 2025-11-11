@@ -112,7 +112,7 @@ def main():
         sys.exit(1)
     wavenumbers = np.asarray(spectrometer.settings.wavenumbers)
 
-    # ---------- Dark spectrum & LASER STATE MANAGEMENT ----------
+    # ---------- Dark spectrum & Laser State Management ----------
     if use_dark:
         print("Acquiring dark spectrum with LASER OFF...")
         try:
@@ -120,13 +120,13 @@ def main():
         except Exception:
             pass
         dark_spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
-        # Turn laser ON immediately after dark acquisition (no user input)
+        
         spectrometer.hardware.set_laser_enable(True)
         print("Dark acquired. Laser is NOW ON. Ensure safety precautions are followed.")
     else:
         print("Dark spectrum subtraction is disabled. Using zero dark spectrum.")
         dark_spectrum = np.zeros(spectrometer.settings.pixels())
-        # Turn laser ON immediately (no user input)
+        
         spectrometer.hardware.set_laser_enable(True)
         print("Laser is ON. Ensure safety precautions are followed.")
     # -----------------------------------------------------------
