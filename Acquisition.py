@@ -177,9 +177,8 @@ def main():
             ax_corr = fig.add_subplot(gs[0, 0])
             ax_raw = fig.add_subplot(gs[1, 0])
             if selected_peaks_cm:
-                gs_right = gs[:, 1].subgridspec(2, 1, hspace=0.4)
-                ax_time = fig.add_subplot(gs_right[0])
-                ax_waterfall = fig.add_subplot(gs_right[1])
+                ax_time = fig.add_subplot(gs[0, 1])
+                ax_waterfall = fig.add_subplot(gs[1, 1])
             else:
                 ax_time = None
                 ax_waterfall = fig.add_subplot(gs[:, 1])
@@ -260,17 +259,15 @@ def main():
                 print("Stop requested via keyboard.")
                 stop_event.set()
             elif event.key == 's' and optimization_mode:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                snap_dir = data_dir or "."
-                os.makedirs(snap_dir, exist_ok=True)
-                fig.savefig(os.path.join(snap_dir, f"{prefix}_snap_{ts}.png"))
+                os.makedirs(data_dir or ".", exist_ok=True)
+                fig.savefig(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_snap.png"))
                 if snapshot_data:
                     df = pd.DataFrame({
                         'Wavenumbers': snapshot_data['processed_RS'],
                         'Intensity': snapshot_data['corrected_spectrum']
                     })
-                    df.to_csv(os.path.join(snap_dir, f"{prefix}_snap_{ts}.csv"), index=False)
-                print(f"Snapshot saved: {ts}")
+                    df.to_csv(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_snap.csv"), index=False)
+                print(f"Snapshot saved: {prefix}_{timestamp}_snap")
         keypress_cid = fig.canvas.mpl_connect('key_press_event', on_key)
 
         # Buffers
@@ -376,7 +373,8 @@ def main():
                     time_history.append(elapsed)
                     corr_flat = corrected_spectrum.flatten()
                     t_window = time_history[-optimization_history_length:]
-                    baseline_std = float(np.std(baseline))
+                    baseline_rms = float(np.sqrt(np.mean(baseline ** 2)))
+                    proc_flat = processed_spectrum.flatten()
                     snr_parts = []
                     rolling_n = 5
                     for peak_cm in selected_peaks_cm:
@@ -389,7 +387,7 @@ def main():
                             kernel = np.ones(rolling_n) / rolling_n
                             i_mean = np.convolve(i_window, kernel, mode='valid')
                             mean_lines[peak_cm].set_data(t_window[rolling_n - 1:], i_mean)
-                        snr = intensity / baseline_std if baseline_std > 0 else 0.0
+                        snr = float(proc_flat[idx]) / baseline_rms if baseline_rms > 0 else 0.0
                         snr_parts.append(f'{peak_cm:.0f}:{snr:.1f}')
                     ax_corr.set_title(f'Corrected Spectrum{title_suffix} | SNR {", ".join(snr_parts)}')
                     if ax_time is not None:
