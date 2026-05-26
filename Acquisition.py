@@ -176,11 +176,18 @@ def main():
             gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.02, hspace=0.05)
             ax_corr = fig.add_subplot(gs[0, 0])
             ax_raw = fig.add_subplot(gs[1, 0])
-            ax_time = fig.add_subplot(gs[:, 1])
+            if selected_peaks_cm:
+                gs_right = gs[:, 1].subgridspec(2, 1, hspace=0.4)
+                ax_time = fig.add_subplot(gs_right[0])
+                ax_waterfall = fig.add_subplot(gs_right[1])
+            else:
+                ax_time = None
+                ax_waterfall = fig.add_subplot(gs[:, 1])
         else:
             fig, axes = plt.subplots(1, 2, figsize=(20, 5), constrained_layout=True)
             ax_raw, ax_corr = axes
             ax_time = None
+            ax_waterfall = None
 
         # Fullscreen
         try:
@@ -216,9 +223,13 @@ def main():
         line_raw_peaks = None
         line_corr_peaks = None
         intensity_lines = {}
+        mean_lines = {}
         intensity_history = {}
         time_history = []
         start_time = None
+        spectral_buffer = []
+        waterfall_img = None
+        snapshot_data = {}
 
         if optimization_mode and selected_peaks_cm:
             line_raw_peaks, = ax_raw.plot([], [], linestyle='none', marker='o', markersize=6, label='Selected Peaks')
@@ -231,7 +242,9 @@ def main():
             for idx, peak_cm in enumerate(selected_peaks_cm):
                 color = cmap(idx % cmap.N)
                 line, = ax_time.plot([], [], label=f'{peak_cm:.1f} cm$^{-1}$', color=color)
+                mean_line, = ax_time.plot([], [], linestyle='--', linewidth=1.5, alpha=0.6, color=color)
                 intensity_lines[peak_cm] = line
+                mean_lines[peak_cm] = mean_line
             ax_time.legend(loc='upper right')
 
         # Stop controls
@@ -246,6 +259,18 @@ def main():
             if event.key in ('q', 'escape'):
                 print("Stop requested via keyboard.")
                 stop_event.set()
+            elif event.key == 's' and optimization_mode:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                snap_dir = data_dir or "."
+                os.makedirs(snap_dir, exist_ok=True)
+                fig.savefig(os.path.join(snap_dir, f"{prefix}_snap_{ts}.png"))
+                if snapshot_data:
+                    df = pd.DataFrame({
+                        'Wavenumbers': snapshot_data['processed_RS'],
+                        'Intensity': snapshot_data['corrected_spectrum']
+                    })
+                    df.to_csv(os.path.join(snap_dir, f"{prefix}_snap_{ts}.csv"), index=False)
+                print(f"Snapshot saved: {ts}")
         keypress_cid = fig.canvas.mpl_connect('key_press_event', on_key)
 
         # Buffers
@@ -258,7 +283,7 @@ def main():
         if not optimization_mode and sys.stdin and sys.stdin.isatty():
             input("Press Enter to START acquisition and plotting...")
 
-        if optimization_mode and selected_peaks_cm:
+        if optimization_mode:
             start_time = time.time()
 
         # Start stop-listener AFTER acquisition starts
@@ -291,13 +316,20 @@ def main():
                 if corrected_data is None:
                     corrected_data = np.empty((0, processed_RS.size))
 
+                if optimization_mode:
+                    elapsed = time.time() - start_time
+                    title_suffix = f' | #{counter + 1} | T+{elapsed:.1f}s'
+                else:
+                    elapsed = 0.0
+                    title_suffix = f' {counter + 1}'
+
                 line_raw.set_data(wavenumbers, spectrum.flatten())
                 line_baseline.set_data(processed_RS, baseline.flatten())
-                ax_raw.set_title(f'Raw Spectrum {counter + 1}')
+                ax_raw.set_title(f'Raw Spectrum{title_suffix}')
                 ax_raw.relim(); ax_raw.autoscale_view()
 
                 line_corr.set_data(processed_RS, corrected_spectrum.flatten())
-                ax_corr.set_title(f'Corrected Spectrum {counter + 1}')
+                ax_corr.set_title(f'Corrected Spectrum{title_suffix}')
                 ax_corr.relim(); ax_corr.autoscale_view()
 
                 # Optional: peaks & time series (if configured)
@@ -317,17 +349,49 @@ def main():
                         corr_ys.append(float(corr_flat[idx_corr]))
                     line_corr_peaks.set_data(corr_xs, corr_ys)
 
+                # Waterfall (optimization mode)
+                if optimization_mode:
+                    snapshot_data['processed_RS'] = processed_RS.copy()
+                    snapshot_data['corrected_spectrum'] = corrected_spectrum.flatten().copy()
+                    spectral_buffer.append(corrected_spectrum.flatten().copy())
+                    if len(spectral_buffer) > optimization_history_length:
+                        spectral_buffer.pop(0)
+                    if ax_waterfall is not None:
+                        wf_data = np.array(spectral_buffer)
+                        if waterfall_img is None:
+                            waterfall_img = ax_waterfall.imshow(
+                                wf_data, aspect='auto', origin='lower',
+                                extent=[float(processed_RS[0]), float(processed_RS[-1]),
+                                        0, optimization_history_length],
+                                cmap='viridis'
+                            )
+                            ax_waterfall.set_xlabel('Raman Shift (cm$^{-1}$)')
+                            ax_waterfall.set_ylabel('Measurement (recent)')
+                            ax_waterfall.set_title('Spectral History')
+                        else:
+                            waterfall_img.set_data(wf_data)
+                            waterfall_img.set_clim(vmin=wf_data.min(), vmax=wf_data.max())
+
                 if optimization_mode and selected_peaks_cm:
-                    elapsed = time.time() - start_time if start_time is not None else 0.0
                     time_history.append(elapsed)
                     corr_flat = corrected_spectrum.flatten()
                     t_window = time_history[-optimization_history_length:]
+                    baseline_std = float(np.std(baseline))
+                    snr_parts = []
+                    rolling_n = 5
                     for peak_cm in selected_peaks_cm:
                         idx = int(np.argmin(np.abs(processed_RS - peak_cm)))
                         intensity = float(corr_flat[idx])
                         intensity_history[peak_cm].append(intensity)
                         i_window = intensity_history[peak_cm][-optimization_history_length:]
                         intensity_lines[peak_cm].set_data(t_window, i_window)
+                        if len(i_window) >= rolling_n:
+                            kernel = np.ones(rolling_n) / rolling_n
+                            i_mean = np.convolve(i_window, kernel, mode='valid')
+                            mean_lines[peak_cm].set_data(t_window[rolling_n - 1:], i_mean)
+                        snr = intensity / baseline_std if baseline_std > 0 else 0.0
+                        snr_parts.append(f'{peak_cm:.0f}:{snr:.1f}')
+                    ax_corr.set_title(f'Corrected Spectrum{title_suffix} | SNR {", ".join(snr_parts)}')
                     if ax_time is not None:
                         ax_time.relim(); ax_time.autoscale_view()
 
