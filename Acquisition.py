@@ -32,6 +32,7 @@ background_file         = ""      # CSV file path (if use_background and load fr
 optimization_averages   = 1       # >=1 frames per displayed spectrum (only used in optimization_mode)
 optimization_int_time   = 1.0     # seconds (overrides integration_time in optimization_mode)
 selected_peaks_cm       = []      # e.g., [520, 1000, 1600]
+optimization_history_length = 20  # number of recent measurements shown on ax_time
 
 # Ramanspy preprocessing parameters
 crop_region             = (400, 1800)  # cm^-1
@@ -253,8 +254,8 @@ def main():
         corrected_data = None
         processed_RS = None
 
-        # Start gate (only for acquisition/plotting, not laser)
-        if sys.stdin and sys.stdin.isatty():
+        # Start gate (only for acquisition/plotting in standard mode)
+        if not optimization_mode and sys.stdin and sys.stdin.isatty():
             input("Press Enter to START acquisition and plotting...")
 
         if optimization_mode and selected_peaks_cm:
@@ -320,11 +321,13 @@ def main():
                     elapsed = time.time() - start_time if start_time is not None else 0.0
                     time_history.append(elapsed)
                     corr_flat = corrected_spectrum.flatten()
+                    t_window = time_history[-optimization_history_length:]
                     for peak_cm in selected_peaks_cm:
                         idx = int(np.argmin(np.abs(processed_RS - peak_cm)))
                         intensity = float(corr_flat[idx])
                         intensity_history[peak_cm].append(intensity)
-                        intensity_lines[peak_cm].set_data(time_history, intensity_history[peak_cm])
+                        i_window = intensity_history[peak_cm][-optimization_history_length:]
+                        intensity_lines[peak_cm].set_data(t_window, i_window)
                     if ax_time is not None:
                         ax_time.relim(); ax_time.autoscale_view()
 
