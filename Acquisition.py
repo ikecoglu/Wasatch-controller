@@ -171,6 +171,8 @@ def main():
 
         plt.ion()
         if optimization_mode:
+            plt.rcParams['keymap.save'] = [k for k in plt.rcParams['keymap.save'] if k != 's']
+        if optimization_mode:
             fig = plt.figure(figsize=(24, 9), constrained_layout=True)
             fig.set_constrained_layout_pads(w_pad=0.02, h_pad=0.02, wspace=0.02, hspace=0.04)
             gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.02, hspace=0.05)
