@@ -115,8 +115,8 @@ def main():
         print("Acquiring dark spectrum with LASER OFF...")
         try:
             spectrometer.hardware.set_laser_enable(False)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: could not disable laser for dark acquisition: {e}")
         dark_spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
         
         spectrometer.hardware.set_laser_enable(True)
@@ -139,7 +139,6 @@ def main():
         plt.ion()
         if optimization_mode:
             plt.rcParams['keymap.save'] = [k for k in plt.rcParams['keymap.save'] if k != 's']
-        if optimization_mode:
             fig = plt.figure(figsize=(24, 9), constrained_layout=True)
             fig.set_constrained_layout_pads(w_pad=0.02, h_pad=0.02, wspace=0.02, hspace=0.04)
             gs = fig.add_gridspec(2, 2, width_ratios=[3, 2], wspace=0.02, hspace=0.05)
@@ -241,8 +240,8 @@ def main():
 
         # Buffers
         pixels = spectrometer.settings.pixels()
-        raw_data = np.empty((0, pixels))
-        corrected_data = None
+        raw_list = []
+        corrected_list = []
         processed_RS = None
 
         # Start gate (only for acquisition/plotting in standard mode)
@@ -276,9 +275,6 @@ def main():
                     SG_window=SG_window, SG_polyorder=SG_polyorder
                 )
                 corrected_spectrum = smooth_spectrum
-
-                if corrected_data is None:
-                    corrected_data = np.empty((0, processed_RS.size))
 
                 if optimization_mode:
                     elapsed = time.time() - start_time
@@ -360,8 +356,8 @@ def main():
                     if ax_time is not None:
                         ax_time.relim(); ax_time.autoscale_view()
 
-                raw_data = np.vstack([raw_data, spectrum[np.newaxis, :]])
-                corrected_data = np.vstack([corrected_data, corrected_spectrum[np.newaxis, :]])
+                raw_list.append(spectrum.flatten().copy())
+                corrected_list.append(corrected_spectrum.flatten().copy())
 
                 plt.pause(0.05)
                 counter += 1
@@ -371,44 +367,50 @@ def main():
         plt.ioff()
 
         if not optimization_mode:
-            os.makedirs(data_dir or ".", exist_ok=True)
-            fig.savefig(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_plots.png"))
-            plt.close(fig)
+            if not corrected_list:
+                print("No data acquired; nothing saved.")
+            else:
+                raw_data = np.array(raw_list)
+                corrected_data = np.array(corrected_list)
 
-            raw_df = pd.DataFrame(raw_data.T)
-            raw_df.insert(0, 'Wavenumbers', wavenumbers)
+                os.makedirs(data_dir or ".", exist_ok=True)
+                fig.savefig(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_plots.png"))
+                plt.close(fig)
 
-            corrected_df = pd.DataFrame(corrected_data.T)
-            corrected_df.insert(0, 'Wavenumbers', processed_RS)
+                raw_df = pd.DataFrame(raw_data.T)
+                raw_df.insert(0, 'Wavenumbers', wavenumbers)
 
-            raw_filename       = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_raw_data.csv")
-            corrected_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_corrected_data.csv")
-            raw_df.to_csv(raw_filename, index=False)
-            corrected_df.to_csv(corrected_filename, index=False)
+                corrected_df = pd.DataFrame(corrected_data.T)
+                corrected_df.insert(0, 'Wavenumbers', processed_RS)
 
-            params = {
-                'integration_time': integration_time,
-                'laser_power': laser_power,
-                'use_dark': use_dark,
-                'max_num_spectra': max_num_spectra,
-                'timestamp': timestamp,
-                'prefix': prefix,
-                'optimization_mode': optimization_mode,
-                'optimization_averages': optimization_averages,
-                'selected_peaks_cm': selected_peaks_cm,
-                'ramanspy': {
-                    'crop_region': crop_region,
-                    'asls_lam': asls_lam,
-                    'asls_p': asls_p,
-                    'SG_window': SG_window,
-                    'SG_polyorder': SG_polyorder,
-                    'pipeline': ['Crop', 'ASLS', 'SavGol', 'VectorNorm(pixelwise)']
+                raw_filename       = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_raw_data.csv")
+                corrected_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_corrected_data.csv")
+                raw_df.to_csv(raw_filename, index=False)
+                corrected_df.to_csv(corrected_filename, index=False)
+
+                params = {
+                    'integration_time': integration_time,
+                    'laser_power': laser_power,
+                    'use_dark': use_dark,
+                    'max_num_spectra': max_num_spectra,
+                    'timestamp': timestamp,
+                    'prefix': prefix,
+                    'optimization_mode': optimization_mode,
+                    'optimization_averages': optimization_averages,
+                    'selected_peaks_cm': selected_peaks_cm,
+                    'ramanspy': {
+                        'crop_region': crop_region,
+                        'asls_lam': asls_lam,
+                        'asls_p': asls_p,
+                        'SG_window': SG_window,
+                        'SG_polyorder': SG_polyorder,
+                        'pipeline': ['Crop', 'ASLS', 'SavGol', 'VectorNorm(pixelwise)']
+                    }
                 }
-            }
-            with open(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_params.json"), 'w') as f:
-                json.dump(params, f, indent=4)
+                with open(os.path.join(data_dir or ".", f"{prefix}_{timestamp}_params.json"), 'w') as f:
+                    json.dump(params, f, indent=4)
 
-            print("Data saved successfully.")
+                print("Data saved successfully.")
     finally:
         try:
             spectrometer.hardware.set_laser_enable(False)
