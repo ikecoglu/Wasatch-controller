@@ -136,6 +136,9 @@ def main():
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        if not optimization_mode and sys.stdin and sys.stdin.isatty():
+            input("Press Enter to START acquisition and plotting...")
+
         plt.ion()
         if optimization_mode:
             plt.rcParams['keymap.save'] = [k for k in plt.rcParams['keymap.save'] if k != 's']
@@ -243,10 +246,6 @@ def main():
         raw_list = []
         corrected_list = []
         processed_RS = None
-
-        # Start gate (only for acquisition/plotting in standard mode)
-        if not optimization_mode and sys.stdin and sys.stdin.isatty():
-            input("Press Enter to START acquisition and plotting...")
 
         if optimization_mode:
             start_time = time.time()
