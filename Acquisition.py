@@ -183,7 +183,7 @@ def main():
 
         line_corr, = ax_corr.plot([], [], label='Processed (SavGol + VectorNorm)')
         ax_corr.set_xlabel('Raman Shift (cm$^{-1}$)')
-        ax_corr.set_ylabel('Intensity (a.u.)')
+        ax_corr.set_ylabel('Normalized Intensity (a.u.)')
         ax_corr.legend()
         ax_corr.set_title('Corrected Spectrum')
 
