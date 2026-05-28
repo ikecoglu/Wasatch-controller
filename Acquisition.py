@@ -25,8 +25,6 @@ max_num_spectra         = 10      # int or None for unlimited
 
 # Optional corrections BEFORE Ramanspy
 use_dark                = False   # acquire a dark spectrum and subtract
-use_background          = False   # subtract provided/acquired background BEFORE Ramanspy
-background_file         = ""      # CSV file path (if use_background and load from file)
 
 # Optimization extras
 optimization_averages   = 1       # >=1 frames per displayed spectrum (only used in optimization_mode)
@@ -73,11 +71,10 @@ def rp_process_spectrum(raw_spectrum_1d: np.ndarray,
 
 
 def main():
-    global integration_time, max_num_spectra, use_background, use_dark, optimization_averages
+    global integration_time, max_num_spectra, use_dark, optimization_averages
     if optimization_mode:
         integration_time = optimization_int_time
         max_num_spectra = None
-        use_background = False
         use_dark = False
         optimization_averages = max(1, int(optimization_averages))
 
@@ -132,36 +129,6 @@ def main():
         print("Laser is ON. Ensure safety precautions are followed.")
     # -----------------------------------------------------------
 
-    # Background
-    if use_background and background_file:
-        print(f"Loading background spectrum from file: {background_file}")
-        background_df = pd.read_csv(background_file)
-        cols_to_drop = [c for c in ["Wavenumbers", "Background"] if c in background_df.columns]
-        bg_block = background_df.drop(columns=cols_to_drop, errors="ignore").select_dtypes(include=[np.number])
-        if bg_block.empty:
-            raise ValueError("No numeric columns found in background file.")
-        bg = bg_block.to_numpy()
-        if bg.shape[0] == spectrometer.settings.pixels():
-            background = np.mean(bg, axis=1)
-        elif bg.shape[1] == spectrometer.settings.pixels():
-            background = np.mean(bg, axis=0)
-        else:
-            raise ValueError("Background file dimensions don't match spectrometer pixel count.")
-    elif use_background:
-        print("The script will now acquire 3 background spectra for averaging.")
-        if sys.stdin and sys.stdin.isatty():
-            input("Press Enter to start background acquisition...")
-        tmp = []
-        for i in range(3):
-            print(f"Acquiring background spectrum {i+1}/3...")
-            spec = spectrometer.hardware.get_line().data.spectrum - dark_spectrum
-            tmp.append(spec)
-        background = np.mean(tmp, axis=0)
-        print("Background spectrum acquired and averaged.")
-    else:
-        background = np.zeros(spectrometer.settings.pixels())
-        print("Background subtraction is disabled. Using zero background.")
-
     # Plot/UI setup
     fig = None
     keypress_cid = None
@@ -207,7 +174,7 @@ def main():
 
         # Lines
         line_raw, = ax_raw.plot([], [], label='Raw Spectrum')
-        baseline_label = 'Baseline + Background' if use_background else 'Baseline'
+        baseline_label = 'Baseline'
         line_baseline, = ax_raw.plot([], [], label=baseline_label)
         ax_raw.set_title('Raw / Baseline')
         ax_raw.set_xlabel('Raman Shift (cm$^{-1}$)')
@@ -301,8 +268,6 @@ def main():
                     spectrum = np.array(spectrometer.hardware.get_line().data.spectrum)
 
                 spectrum = spectrum - dark_spectrum
-                if use_background and background.size == spectrum.size:
-                    spectrum = spectrum - background
 
                 processed_RS, processed_spectrum, smooth_spectrum, baseline = rp_process_spectrum(
                     spectrum.flatten(), wavenumbers,
@@ -412,11 +377,9 @@ def main():
 
             raw_df = pd.DataFrame(raw_data.T)
             raw_df.insert(0, 'Wavenumbers', wavenumbers)
-            raw_df.insert(1, 'Background', background)
 
             corrected_df = pd.DataFrame(corrected_data.T)
             corrected_df.insert(0, 'Wavenumbers', processed_RS)
-            corrected_df.insert(1, 'Background', np.zeros_like(processed_RS))
 
             raw_filename       = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_raw_data.csv")
             corrected_filename = os.path.join(data_dir or ".", f"{prefix}_{timestamp}_corrected_data.csv")
@@ -426,8 +389,6 @@ def main():
             params = {
                 'integration_time': integration_time,
                 'laser_power': laser_power,
-                'use_background': use_background,
-                'background_file': background_file,
                 'use_dark': use_dark,
                 'max_num_spectra': max_num_spectra,
                 'timestamp': timestamp,
